@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores clinical staff profile information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "displayName": { "type": "string", "description": "User's full name." },
+        "clinicName": { "type": "string", "description": "Name of the occupational health clinic." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." }
+      },
+      "required": ["uid", "email", "clinicName", "createdAt"]
+    },
+    "ComplianceReport": {
+      "title": "Compliance Report",
+      "description": "Stores extracted CPAP compliance metrics and status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique report ID." },
+        "clinicId": { "type": "string", "description": "ID of the clinic that uploaded the report." },
+        "patientName": { "type": "string", "description": "Extracted patient name." },
+        "dob": { "type": "string", "description": "Patient's date of birth." },
+        "licenseNumber": { "type": "string", "description": "Patient's driver license number." },
+        "licenseState": { "type": "string", "description": "State of issuance for the driver license." },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "patient_name": { "type": "string" },
+            "start_date": { "type": "string" },
+            "end_date": { "type": "string" },
+            "total_nights": { "type": "number" },
+            "nights_over_4_hours": { "type": "number" },
+            "compliance_percentage": { "type": "number" },
+            "average_usage_hours": { "type": "number" },
+            "ahi": { "type": "number" }
+          }
+        },
+        "status": { "type": "string", "enum": ["Compliant", "Non-Compliant"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "clinicId", "patientName", "metrics", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document."
+    },
+    "/reports/{reportId}": {
+      "schema": "ComplianceReport",
+      "description": "Individual CPAP compliance report."
+    }
+  }
+}
