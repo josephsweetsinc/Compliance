@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { Link } from 'react-router-dom';
-import { FileUp, History, CheckCircle, XCircle, Clock, ChevronRight } from 'lucide-react';
+import { FileUp, History, CheckCircle, XCircle, Clock, ChevronRight, Mail, Settings, ShieldCheck, Loader2 } from 'lucide-react';
 import { formatDate } from '../lib/utils';
 
-export default function DashboardPage({ profile }: { profile: UserProfile }) {
+export default function DashboardPage({ profile, setProfile }: { profile: UserProfile; setProfile: (p: UserProfile) => void }) {
   const [recentReports, setRecentReports] = useState<ComplianceReport[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Settings saving status states
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSuccess, setSettingsSuccess] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(
@@ -27,6 +32,31 @@ export default function DashboardPage({ profile }: { profile: UserProfile }) {
     return () => unsubscribe();
   }, [profile.uid]);
 
+  const toggleAutoEmail = async (enabled: boolean) => {
+    setSavingSettings(true);
+    setSettingsSuccess(false);
+    setSettingsError(null);
+    try {
+      const userDocRef = doc(db, 'users', profile.uid);
+      await updateDoc(userDocRef, {
+        autoEmailEnabled: enabled
+      });
+      
+      // Update the local context/profile state so rest of the app reacts instantly
+      setProfile({
+        ...profile,
+        autoEmailEnabled: enabled
+      });
+      setSettingsSuccess(true);
+      setTimeout(() => setSettingsSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Error updating notification details:', err);
+      setSettingsError(err.message || 'Failed to update preferences');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const stats = {
     total: recentReports.length,
     compliant: recentReports.filter(r => r.status === 'Compliant').length,
@@ -38,10 +68,10 @@ export default function DashboardPage({ profile }: { profile: UserProfile }) {
       <header className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500">Welcome back, {profile.displayName || 'Clinic Staff'}</p>
+          <p className="text-slate-500">Welcome back, {profile.displayName || 'Operator'}</p>
         </div>
         <Link
-          to="/upload"
+          to="/dashboard/upload"
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200"
         >
           <FileUp size={20} />
@@ -71,62 +101,125 @@ export default function DashboardPage({ profile }: { profile: UserProfile }) {
         />
       </div>
 
-      {/* Recent Activity */}
-      <section className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-slate-800">Recent Activity</h2>
-          <Link to="/history" className="text-blue-600 hover:text-blue-700 text-sm font-semibold flex items-center gap-1">
-            View All <ChevronRight size={16} />
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="p-12 flex justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
-          </div>
-        ) : recentReports.length > 0 ? (
-          <div className="divide-y divide-slate-50">
-            {recentReports.map((report) => (
-              <Link
-                key={report.id}
-                to={`/report/${report.id}`}
-                className="flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`p-2 rounded-lg ${report.status === 'Compliant' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                    {report.status === 'Compliant' ? <CheckCircle size={20} /> : <XCircle size={20} />}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-800">{report.patientName}</h3>
-                    <p className="text-sm text-slate-500 flex items-center gap-1">
-                      <Clock size={14} /> {formatDate(report.createdAt)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-right hidden sm:block">
-                    <p className="text-sm font-semibold text-slate-700">{report.metrics.compliance_percentage}% Compliance</p>
-                    <p className="text-xs text-slate-400">{report.metrics.average_usage_hours} hrs avg usage</p>
-                  </div>
-                  <ChevronRight size={20} className="text-slate-300" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="p-12 text-center">
-            <div className="mb-4 flex justify-center">
-              <div className="p-4 bg-slate-50 rounded-full">
-                <FileUp className="text-slate-300" size={32} />
-              </div>
-            </div>
-            <p className="text-slate-500 font-medium">No reports uploaded yet.</p>
-            <Link to="/upload" className="text-blue-600 hover:underline text-sm font-semibold mt-2 inline-block">
-              Upload your first report
+      <div className="grid grid-cols-1 gap-8">
+        {/* Recent Activity */}
+        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center">
+            <h2 className="text-xl font-bold text-slate-800">Recent Activity</h2>
+            <Link to="/history" className="text-blue-600 hover:text-blue-700 text-sm font-semibold flex items-center gap-1">
+              View All <ChevronRight size={16} />
             </Link>
           </div>
-        )}
-      </section>
+
+          {loading ? (
+            <div className="p-12 flex justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+            </div>
+          ) : recentReports.length > 0 ? (
+            <div className="divide-y divide-slate-50">
+              {recentReports.map((report) => (
+                <Link
+                  key={report.id}
+                  to={`/report/${report.id}`}
+                  className="flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2 rounded-lg ${report.status === 'Compliant' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                      {report.status === 'Compliant' ? <CheckCircle size={20} /> : <XCircle size={20} />}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-800">{report.patientName}</h3>
+                      <p className="text-sm text-slate-500 flex items-center gap-1">
+                        <Clock size={14} /> {formatDate(report.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className="text-right hidden sm:block">
+                      <p className="text-sm font-semibold text-slate-700">{report.metrics.compliance_percentage}% Compliance</p>
+                      <p className="text-xs text-slate-400">{report.metrics.average_usage_hours} hrs avg usage</p>
+                    </div>
+                    <ChevronRight size={20} className="text-slate-300" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="p-12 text-center">
+              <div className="mb-4 flex justify-center">
+                <div className="p-4 bg-slate-50 rounded-full">
+                  <FileUp className="text-slate-300" size={32} />
+                </div>
+              </div>
+              <p className="text-slate-500 font-medium">No reports uploaded yet.</p>
+              <Link to="/upload" className="text-blue-600 hover:underline text-sm font-semibold mt-2 inline-block">
+                Upload your first report
+              </Link>
+            </div>
+          )}
+        </section>
+
+        {/* Portal settings / Notification preferences */}
+        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6" id="settings-preferences">
+          <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
+            <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
+              <Settings size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">Notification Preferences</h2>
+              <p className="text-xs text-slate-400">Configure administrative notifications for generated CPAP compliance letters</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-5 rounded-xl bg-slate-50 border border-slate-100">
+            <div className="space-y-1 max-w-xl">
+              <div className="flex items-center gap-2">
+                <Mail className="text-blue-600 shrink-0" size={18} />
+                <span className="font-semibold text-slate-800">Automated Operator Email Summary</span>
+              </div>
+              <p className="text-sm text-slate-500 leading-relaxed">
+                When a new CPAP report is uploaded and successfully processed, automatically dispatch an analytical compliance scorecard summary directly to your registered operator email: <span className="font-semibold text-slate-705 underline">{profile.email}</span>.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 md:self-center self-end">
+              {savingSettings && (
+                <span className="text-xs text-slate-400 flex items-center gap-1">
+                  <Loader2 size={12} className="animate-spin" /> Saving...
+                </span>
+              )}
+              {settingsSuccess && (
+                <span className="text-xs text-emerald-600 flex items-center gap-1 font-semibold animate-pulse">
+                  <ShieldCheck size={14} /> Preference Saved
+                </span>
+              )}
+              {settingsError && (
+                <span className="text-xs text-rose-600 font-medium">
+                  {settingsError}
+                </span>
+              )}
+
+              {/* Toggle Switch */}
+              <button
+                onClick={() => toggleAutoEmail(profile.autoEmailEnabled === false)}
+                disabled={savingSettings}
+                className={`relative z-0 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 ${
+                  profile.autoEmailEnabled !== false ? 'bg-blue-600' : 'bg-slate-200'
+                }`}
+                type="button"
+                id="toggle-auto-email"
+                aria-checked={profile.autoEmailEnabled !== false}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    profile.autoEmailEnabled !== false ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

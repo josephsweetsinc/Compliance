@@ -38,9 +38,10 @@
           }
         },
         "status": { "type": "string", "enum": ["Compliant", "Non-Compliant"] },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time", "description": "When the report data will be deleted from the system." }
       },
-      "required": ["id", "clinicId", "patientName", "metrics", "status", "createdAt"]
+      "required": ["id", "clinicId", "patientName", "metrics", "status", "createdAt", "expiresAt"]
     }
   },
   "firestore": {

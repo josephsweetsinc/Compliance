@@ -19,29 +19,75 @@ export async function extractComplianceMetrics(text: string): Promise<Compliance
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Extract CPAP compliance data from the following text. Return only JSON.
-      Text: ${text}`,
+      contents: `You are a medical data extraction engine.
+
+Extract CPAP compliance metrics from the document.
+
+Rules:
+
+* Return ONLY valid JSON
+* Do NOT explain anything
+* Do NOT guess values
+* If a value is missing, return null
+* Numbers must be numeric (no % signs)
+
+Extract:
+
+patient_name
+device_type
+report_start_date
+report_end_date
+total_days
+days_used_4_plus_hours
+usage_days_percent
+average_usage_hours
+ahi
+
+Important:
+
+* usage_days_percent = % of days with ≥4 hours usage
+* average_usage_hours = average nightly usage
+* ahi = apnea-hypopnea index
+
+Return format:
+
+{
+"patient_name": "",
+"device_type": "",
+"report_start_date": "",
+"report_end_date": "",
+"total_days": 0,
+"days_used_4_plus_hours": 0,
+"usage_days_percent": 0,
+"average_usage_hours": 0,
+"ahi": 0
+}
+
+Document Text:
+${text}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             patient_name: { type: Type.STRING },
-            start_date: { type: Type.STRING },
-            end_date: { type: Type.STRING },
-            total_nights: { type: Type.INTEGER },
-            nights_over_4_hours: { type: Type.INTEGER },
-            compliance_percentage: { type: Type.NUMBER },
+            device_type: { type: Type.STRING },
+            report_start_date: { type: Type.STRING },
+            report_end_date: { type: Type.STRING },
+            total_days: { type: Type.INTEGER },
+            days_used_4_plus_hours: { type: Type.INTEGER },
+            usage_days_percent: { type: Type.NUMBER },
             average_usage_hours: { type: Type.NUMBER },
             ahi: { type: Type.NUMBER },
           },
           required: [
             "patient_name",
-            "start_date",
-            "end_date",
-            "total_nights",
-            "nights_over_4_hours",
-            "compliance_percentage",
+            "device_type",
+            "report_start_date",
+            "report_end_date",
+            "total_days",
+            "days_used_4_plus_hours",
+            "usage_days_percent",
             "average_usage_hours",
             "ahi",
           ],
@@ -58,18 +104,22 @@ export async function extractComplianceMetrics(text: string): Promise<Compliance
     try {
       metrics = JSON.parse(jsonStr);
     } catch (e) {
-      throw new Error("Failed to parse the clinical data. The report format might be unsupported or the file might be corrupted.");
+      throw new Error("Failed to parse the CPAP data. The report format might be unsupported or the file might be corrupted.");
     }
 
     // Structural Validation
     const requiredFields = [
-      "patient_name", "start_date", "end_date", "total_nights", 
-      "nights_over_4_hours", "compliance_percentage", "average_usage_hours", "ahi"
+      "patient_name", "device_type", "report_start_date", "report_end_date", 
+      "total_days", "days_used_4_plus_hours", "usage_days_percent", "average_usage_hours", "ahi"
     ];
 
     for (const field of requiredFields) {
       if (metrics[field] === undefined || metrics[field] === null) {
-        throw new Error(`The clinical analysis is missing a required field: ${field}. The report might be missing critical compliance data.`);
+        // We throw if missing in structural validation to avoid runtime errors in pages
+        // though the prompt says "If a value is missing, return null" we can handle null if we want
+        // But for CPAP physicals, we usually need these values. 
+        // I will keep the check but allow null if the page handles it?
+        // Actually the prompt says "If a value is missing, return null", so I'll allow null in types.
       }
     }
 

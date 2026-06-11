@@ -1,39 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Document ID: userId (uid)
-    // Fields:
-    //   - uid: string (required, immutable)
-    //   - email: string (required, immutable)
-    //   - displayName: string (optional)
-    //   - clinicName: string (required)
-    //   - createdAt: string (required, immutable)
-    //
-    // Collection: reports
-    // Document ID: reportId
-    // Fields:
-    //   - id: string (required, immutable)
-    //   - clinicId: string (required, immutable, matches current user uid)
-    //   - patientName: string (required)
-    //   - dob: string (optional)
-    //   - licenseNumber: string (optional)
-    //   - licenseState: string (optional)
-    //   - metrics: map (required)
-    //   - status: string (required, enum: ['Compliant', 'Non-Compliant'])
-    //   - createdAt: string (required, immutable)
-    //
-    // ===============================================================
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
     // ===============================================================
     // Helper Functions
     // ===============================================================
     function isAuthenticated() {
-      return request.auth != null;
+      return request.auth != null && request.auth.token.email_verified == true;
     }
 
     function isOwner(userId) {
@@ -44,22 +21,34 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.clinicId;
     }
 
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'clinicName', 'createdAt']) &&
              data.uid is string && data.uid == request.auth.uid &&
-             data.email is string && data.email.size() > 0 &&
-             data.clinicName is string && data.clinicName.size() > 0 && data.clinicName.size() < 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 256 &&
+             data.clinicName is string && data.clinicName.size() > 0 && data.clinicName.size() <= 200 &&
              data.createdAt is string;
     }
 
     function isValidReport(data) {
       return data.keys().hasAll(['id', 'clinicId', 'patientName', 'metrics', 'status', 'createdAt']) &&
-             data.id is string &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.clinicId is string && data.clinicId == request.auth.uid &&
-             data.patientName is string && data.patientName.size() > 0 && data.patientName.size() < 100 &&
-             (!('dob' in data) || (data.dob is string && data.dob.size() <= 20)) &&
-             (!('licenseNumber' in data) || (data.licenseNumber is string && data.licenseNumber.size() <= 50)) &&
-             (!('licenseState' in data) || (data.licenseState is string && data.licenseState.size() <= 20)) &&
+             data.patientName is string && data.patientName.size() >= 0 && data.patientName.size() <= 200 &&
+             (!('dob' in data) || (data.dob is string && data.dob.size() <= 100)) &&
+             (!('licenseNumber' in data) || (data.licenseNumber is string && data.licenseNumber.size() <= 100)) &&
+             (!('licenseState' in data) || (data.licenseState is string && data.licenseState.size() <= 100)) &&
              data.metrics is map &&
              data.status in ['Compliant', 'Non-Compliant'] &&
              data.createdAt is string;
@@ -71,25 +60,21 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(request.resource.data);
-      allow update: if isOwner(userId) && isValidUser(request.resource.data) &&
-                      request.resource.data.uid == resource.data.uid &&
-                      request.resource.data.email == resource.data.email &&
-                      request.resource.data.createdAt == resource.data.createdAt;
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) &&
+                       incoming().uid == existing().uid &&
+                       incoming().email == existing().email &&
+                       incoming().createdAt == existing().createdAt;
     }
 
     match /reports/{reportId} {
       allow read: if isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid);
-      allow create: if isAuthenticated() && isValidReport(request.resource.data);
-      allow update: if isDocOwner() && isValidReport(request.resource.data) &&
-                      request.resource.data.id == resource.data.id &&
-                      request.resource.data.clinicId == resource.data.clinicId &&
-                      request.resource.data.createdAt == resource.data.createdAt;
+      allow create: if isAuthenticated() && isValidId(reportId) && isValidReport(incoming()) && incoming().id == reportId;
+      allow update: if isDocOwner() && isValidId(reportId) && isValidReport(incoming()) &&
+                       incoming().id == existing().id &&
+                       incoming().clinicId == existing().clinicId &&
+                       incoming().createdAt == existing().createdAt;
       allow delete: if isDocOwner();
-    }
-
-    match /{path=**} {
-      allow read, write: if false;
     }
   }
 }

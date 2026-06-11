@@ -5,7 +5,7 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
-import { CheckCircle, XCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2 } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2 } from 'lucide-react';
 
 export default function ResultPage({ profile }: { profile: UserProfile }) {
   const { id } = useParams<{ id: string }>();
@@ -14,8 +14,53 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   const [error, setError] = useState<string | null>(null);
   const [showLetterPreview, setShowLetterPreview] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState(profile.email || '');
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [emailErrorDetails, setEmailErrorDetails] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState<string>('');
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(900);
+  const [percentageRemaining, setPercentageRemaining] = useState<number>(100);
+  const [isExpiringSoon, setIsExpiringSoon] = useState(false);
   const navigate = useNavigate();
+
+  // Expiration countdown
+  useEffect(() => {
+    if (!report || !report.expiresAt) return;
+
+    const timer = setInterval(async () => {
+      const expiry = new Date(report.expiresAt).getTime();
+      const created = report.createdAt ? new Date(report.createdAt).getTime() : expiry - 15 * 60 * 1000;
+      const totalSpan = expiry - created > 0 ? expiry - created : 15 * 60 * 1000;
+      const now = new Date().getTime();
+      const diff = expiry - now;
+
+      if (diff <= 0) {
+        clearInterval(timer);
+        setTimeLeft('Expired');
+        setSecondsRemaining(0);
+        setPercentageRemaining(0);
+        // Auto delete on expiration for security
+        try {
+          await deleteDoc(doc(db, 'reports', report.id));
+        } catch (e) {
+          console.error("Auto-delete failed", e);
+        }
+        navigate('/dashboard/history', { state: { expired: true, patientName: report.patientName } });
+        return;
+      }
+
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      
+      setTimeLeft(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      setSecondsRemaining(Math.max(0, Math.floor(diff / 1000)));
+      setPercentageRemaining(Math.max(0, Math.min(100, (diff / totalSpan) * 100)));
+      setIsExpiringSoon(minutes < 2);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [report, navigate]);
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -44,9 +89,17 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     fetchReport();
   }, [id, profile.uid]);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (report) {
-      generateCompliancePdf(report, profile.clinicName);
+      setDownloadingPdf(true);
+      // Small delay to allow UI to show loading state before blocking CPU with PDF generation
+      setTimeout(() => {
+        try {
+          generateCompliancePdf(report, profile.clinicName);
+        } finally {
+          setDownloadingPdf(false);
+        }
+      }, 600);
     }
   };
 
@@ -66,28 +119,32 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     
     setSendingEmail(true);
     setEmailStatus('idle');
+    setEmailErrorDetails(null);
     
     try {
       const response = await fetch('/api/send-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: profile.email,
+          email: recipientEmail,
           patientName: report.patientName,
           status: report.status,
           reportId: report.id,
         }),
       });
 
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        throw new Error('Failed to send email');
+        throw new Error(data.details || data.error || data.message || `Server responded with status code ${response.status}`);
       }
 
       setEmailStatus('success');
-      setTimeout(() => setEmailStatus('idle'), 3000);
-    } catch (err) {
+      setTimeout(() => setEmailStatus('idle'), 4000);
+    } catch (err: any) {
       console.error('Email error:', err);
       setEmailStatus('error');
+      setEmailErrorDetails(err.message || 'Verification Error');
     } finally {
       setSendingEmail(false);
     }
@@ -132,35 +189,125 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
             <span>Back to Analysis</span>
           </button>
           <div className="flex items-center gap-3">
+            <div className="relative group">
+              <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
+                <Mail size={16} />
+              </div>
+              <input
+                type="email"
+                placeholder="Recipient Email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                className="pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 md:w-64 transition-all"
+              />
+            </div>
             <button
               onClick={handleSendEmail}
-              disabled={sendingEmail}
+              disabled={sendingEmail || downloadingPdf}
               className={`flex items-center gap-2 font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg ${
                 emailStatus === 'success' 
                   ? 'bg-emerald-600 text-white shadow-emerald-200' 
                   : emailStatus === 'error'
                   ? 'bg-rose-600 text-white shadow-rose-200'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-slate-100'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-slate-100 disabled:opacity-50'
               }`}
             >
-              {sendingEmail ? <Loader2 size={20} className="animate-spin" /> : <Mail size={20} />}
-              <span>{emailStatus === 'success' ? 'Email Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
+              {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+              <span>{sendingEmail ? 'Sending...' : emailStatus === 'success' ? 'Email Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
             </button>
             <button
               onClick={handleDownload}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200"
+              disabled={downloadingPdf || sendingEmail}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 disabled:shadow-none"
             >
-              <Download size={20} />
-              <span>Download PDF Letter</span>
+              {downloadingPdf ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+              <span>{downloadingPdf ? 'Processing...' : 'Download PDF Letter'}</span>
             </button>
           </div>
         </header>
 
+        {emailStatus === 'error' && emailErrorDetails && (
+          <div className="max-w-4xl mx-auto bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800 animate-in fade-in duration-300 shadow-sm font-sans">
+            <div className="flex gap-3">
+              <AlertCircle className="text-rose-600 shrink-0 w-5 h-5 mt-0.5" />
+              <div className="space-y-2">
+                <p className="font-bold text-rose-900">Email Dispatch Exception</p>
+                <p className="opacity-95 text-rose-800 font-medium">{emailErrorDetails}</p>
+                {emailErrorDetails.toLowerCase().includes('sandbox') ||
+                 emailErrorDetails.toLowerCase().includes('onboarding') ||
+                 emailErrorDetails.toLowerCase().includes('restrict') ||
+                 emailErrorDetails.toLowerCase().includes('validation') ||
+                 (recipientEmail.toLowerCase() !== 'josephsweetsinc@gmail.com' && !emailErrorDetails.toLowerCase().includes('api key') && !emailErrorDetails.toLowerCase().includes('invalid')) ? (
+                  <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
+                    <span className="font-bold block text-sm mb-1 text-rose-800">Developer Note (Resend Sandbox Restriction):</span>
+                    <p className="mt-1">
+                      Your backend is integrated with a free development/sandbox tier of <strong>Resend</strong>. In sandbox mode, Resend prevents sending emails to external check-in domains (like Yahoo or Outlook) until you register a custom verified domain inside your Resend account.
+                    </p>
+                    <p className="mt-2 font-bold text-rose-800">
+                      How to test successfully:
+                    </p>
+                    <ul className="list-disc list-inside mt-1 pl-1 space-y-1">
+                      <li>Change the recipient email to your registered developer email address: <strong className="font-bold underline">josephsweetsinc@gmail.com</strong></li>
+                      <li>Or log in to your Resend dashboard, add <strong className="font-semibold">{recipientEmail}</strong> as an authorized Single Recipient, or verify your custom domain.</li>
+                    </ul>
+                  </div>
+                ) : null}
+
+                {emailErrorDetails.toLowerCase().includes('api key') || 
+                 emailErrorDetails.toLowerCase().includes('invalid') ||
+                 emailErrorDetails.toLowerCase().includes('missing') ? (
+                  <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
+                    <span className="font-bold block text-sm mb-1 text-rose-800">🔑 Resend API Key Configuration Guide:</span>
+                    <p className="mt-1">
+                      The application server is receiving an invalid, missing, or unauthorized Resend API key. To configure your keys and send emails successfully:
+                    </p>
+                    <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-800">
+                      <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com</a>) and copy your API Key (starts with <code className="bg-rose-100 px-1 rounded font-mono">re_</code>).</li>
+                      <li>In Google AI Studio, open the <strong>Settings / Environment Variables</strong> panel.</li>
+                      <li>Add or update the secret variable with the Name <strong className="font-mono">RESEND_API_KEY</strong> and paste your key as the Value.</li>
+                      <li>Save, wait a few seconds, and click "Email Report" to try again!</li>
+                    </ol>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="max-w-4xl mx-auto bg-white shadow-2xl rounded-sm border border-slate-200 p-12 md:p-16 font-serif text-slate-800 min-h-[800px]">
-          {/* Letter Header */}
-          <div className="mb-12">
-            <p className="font-sans font-bold text-slate-400 text-xs tracking-widest mb-1">{profile.clinicName.toUpperCase()}</p>
-            <p className="font-sans text-slate-400 text-[10px] tracking-widest">OCCUPATIONAL HEALTH & DOT COMPLIANCE</p>
+          {/* Brand/Letter Header card - PRIMARY LOCKUP */}
+          <div className="mb-10 p-6 rounded-2xl bg-[#F7F5F0] border border-slate-200/60 font-sans flex flex-col md:flex-row items-center md:items-start gap-6 select-none shadow-sm">
+            {/* Logo Mark: Pin with Checkmark and "z z z" */}
+            <div className="relative w-16 h-16 bg-[#5850C2] rounded-full flex items-center justify-center shrink-0 shadow-md">
+              {/* Floating zzz */}
+              <div className="absolute top-2 right-2 flex flex-col items-end gap-0.5 leading-none font-bold text-white/50 text-[8px] italic">
+                <span>z</span>
+                <span className="text-[6px] translate-x-0.5">z</span>
+                <span className="text-[5px] translate-x-1">z</span>
+              </div>
+              {/* Bold White Checkmark */}
+              <svg className="w-8 h-8 text-white stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+
+            {/* Typography Lockup */}
+            <div className="flex-1 text-center md:text-left">
+              <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-1.5 justify-center md:justify-start">
+                <h1 className="text-3xl font-extrabold text-[#2E2875] tracking-tight">Comply</h1>
+                <span className="text-3xl font-semibold text-[#5850C2] tracking-tight">Zzz</span>
+              </div>
+
+              <div className="mt-1 text-[#5850C2] font-bold text-[10px] tracking-wider border-b border-[#AAA5E8]/60 pb-1.5 inline-block w-full sm:w-auto">
+                SLEEP PROVEN. ROAD APPROVED.
+              </div>
+
+              <div className="mt-2 text-slate-500 text-[10px] font-bold tracking-widest uppercase flex flex-col sm:flex-row sm:items-center gap-x-2 justify-center md:justify-start">
+                <span>DOT CPAP COMPLIANCE REPORTING</span>
+                <span className="hidden sm:inline text-slate-300 font-normal">•</span>
+                <span className="text-[#2E2875] font-extrabold">{profile.clinicName.toUpperCase()}</span>
+              </div>
+            </div>
           </div>
 
           <div className="mb-8">
@@ -177,8 +324,8 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
           <div className="mb-8 leading-relaxed">
             <p>
-              This letter serves to certify the CPAP compliance status for the driver identified below. 
-              Our clinical analysis of the provided usage data for the period of <strong>{report.metrics.start_date}</strong> to <strong>{report.metrics.end_date}</strong> has been completed.
+              This letter serves to certify the CPAP compliance status for the individual identified below. 
+              Our automated analysis of the provided usage data for the period of <strong>{report.metrics.report_start_date}</strong> to <strong>{report.metrics.report_end_date}</strong> has been completed.
             </p>
           </div>
 
@@ -188,15 +335,16 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
               <p>Name: {report.patientName}</p>
               {report.dob && <p>Date of Birth: {report.dob}</p>}
               {report.licenseNumber && <p>License: {report.licenseNumber} ({report.licenseState || 'N/A'})</p>}
+              {report.metrics.device_type && <p>Device: {report.metrics.device_type}</p>}
             </div>
           </div>
 
           <div className="mb-8">
             <p className="font-bold mb-2 underline">COMPLIANCE SUMMARY:</p>
             <div className="pl-4 space-y-1">
-              <p>Total Nights Monitored: {report.metrics.total_nights}</p>
-              <p>Nights Used &gt; 4 Hours: {report.metrics.nights_over_4_hours}</p>
-              <p>Compliance Percentage: {report.metrics.compliance_percentage}% (Threshold: 70%)</p>
+              <p>Total Days Monitored: {report.metrics.total_days}</p>
+              <p>Days Used &gt; 4 Hours: {report.metrics.days_used_4_plus_hours}</p>
+              <p>Usage Days Percentage: {report.metrics.usage_days_percent}% (Threshold: 70%)</p>
               <p>Average Usage: {report.metrics.average_usage_hours} hours/night (Threshold: 4.0 hrs)</p>
               <p>AHI (Apnea-Hypopnea Index): {report.metrics.ahi}</p>
             </div>
@@ -221,7 +369,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
             <p>Certified by:</p>
             <div className="mt-8 border-t border-slate-300 w-64 pt-2">
               <p className="font-bold text-sm">{profile.clinicName}</p>
-              <p className="text-xs text-slate-500">Authorized Clinical Representative</p>
+              <p className="text-xs text-slate-500">Authorized Representative Signature</p>
             </div>
           </div>
         </div>
@@ -231,6 +379,77 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Privacy and Expiration Hub Component */}
+      {(() => {
+        const remainingSec = secondsRemaining;
+        let themeClasses = 'bg-emerald-50/50 border-emerald-100/70 text-emerald-800';
+        let barColor = 'bg-emerald-500';
+        let pulseClass = '';
+        let statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+        let statusLabel = 'Highly Secure';
+
+        if (remainingSec <= 120) { // < 2 minutes: Critical
+          themeClasses = 'bg-rose-50/60 border-rose-200 text-rose-800';
+          barColor = 'bg-rose-500';
+          pulseClass = 'animate-pulse';
+          statusBadge = 'bg-rose-100 text-rose-800 border-rose-200';
+          statusLabel = 'Purging Soon';
+        } else if (remainingSec <= 600) { // < 10 minutes: Warning
+          themeClasses = 'bg-amber-50/60 border-amber-200/60 text-amber-800';
+          barColor = 'bg-amber-500';
+          statusBadge = 'bg-amber-100 text-amber-800 border-amber-200';
+          statusLabel = 'Temporary Storage';
+        }
+
+        return (
+          <div className={`p-5 rounded-2xl border transition-all duration-500 shadow-sm relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6 ${themeClasses} ${pulseClass}`}>
+            
+            {/* Visual Progress Bar Track */}
+            <div className="absolute inset-x-0 bottom-0 h-1.5 bg-slate-200/40 overflow-hidden">
+              <div 
+                className={`h-full ${barColor} transition-all duration-1000 ease-linear rounded-r`}
+                style={{ width: `${percentageRemaining}%` }}
+              ></div>
+            </div>
+
+            <div className="flex items-start gap-4 z-10">
+              <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 shrink-0">
+                <Clock className="w-6 h-6 stroke-[2.2] text-slate-600" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-base font-bold tracking-tight">Privacy Guard: Automatic Purge Timer</h4>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusBadge}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+                <p className="text-xs opacity-85 leading-relaxed max-w-2xl">
+                  To protect your sensitive healthcare and physical examination data, this certified CPAP report resides entirely in ephemeral storage. It will be permanently, non-retrievably erased from our cloud server in <strong className="font-semibold font-mono">{timeLeft || 'calculating...'}</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 shrink-0 z-10 self-end md:self-auto">
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-bold font-mono uppercase tracking-widest opacity-60">Time Remaining</span>
+                <span className="text-3xl font-black font-mono tracking-tighter leading-none mt-1 min-w-[80px] text-right">
+                  {timeLeft || '--:--'}
+                </span>
+              </div>
+              <div className="h-10 w-[1px] bg-slate-300/30 hidden md:block"></div>
+              <button
+                onClick={handleDelete}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-600 border border-slate-200/80 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                title="Immediate Security Purge"
+              >
+                <Trash2 size={14} />
+                <span>Purge Data Now</span>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       <header className="flex justify-between items-center">
         <Link to="/history" className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors">
           <ChevronLeft size={20} />
@@ -244,29 +463,91 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
           >
             <Trash2 size={20} />
           </button>
+          
+          <div className="relative hidden md:block">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
+              <Mail size={16} />
+            </div>
+            <input
+              type="email"
+              placeholder="Recipient Email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              className="pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 lg:w-64 transition-all"
+            />
+          </div>
+
           <button
             onClick={handleSendEmail}
-            disabled={sendingEmail}
+            disabled={sendingEmail || downloadingPdf}
             className={`flex items-center gap-2 font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg ${
               emailStatus === 'success' 
                 ? 'bg-emerald-600 text-white shadow-emerald-200' 
                 : emailStatus === 'error'
                 ? 'bg-rose-600 text-white shadow-rose-200'
-                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-slate-100'
+                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-slate-100 disabled:opacity-50'
             }`}
           >
-            {sendingEmail ? <Loader2 size={20} className="animate-spin" /> : <Mail size={20} />}
-            <span>{emailStatus === 'success' ? 'Email Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
+            {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+            <span>{sendingEmail ? 'Sending...' : emailStatus === 'success' ? 'Email Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
           </button>
           <button
             onClick={() => setShowLetterPreview(true)}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200"
           >
             <FileText size={20} />
-            <span>Generate DOT Letter</span>
+            <span>Generate Certified Letter</span>
           </button>
         </div>
       </header>
+
+      {emailStatus === 'error' && emailErrorDetails && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800 animate-in fade-in duration-300 shadow-sm font-sans">
+          <div className="flex gap-3">
+            <AlertCircle className="text-rose-600 shrink-0 w-5 h-5 mt-0.5" />
+            <div className="space-y-2">
+              <p className="font-bold text-rose-900">Email Dispatch Exception</p>
+              <p className="opacity-95 text-rose-800 font-medium">{emailErrorDetails}</p>
+               {emailErrorDetails.toLowerCase().includes('sandbox') ||
+                emailErrorDetails.toLowerCase().includes('onboarding') ||
+                emailErrorDetails.toLowerCase().includes('restrict') ||
+                emailErrorDetails.toLowerCase().includes('validation') ||
+                (recipientEmail.toLowerCase() !== 'josephsweetsinc@gmail.com' && !emailErrorDetails.toLowerCase().includes('api key') && !emailErrorDetails.toLowerCase().includes('invalid')) ? (
+                 <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
+                   <span className="font-bold block text-sm mb-1 text-rose-800">Developer Note (Resend Sandbox Restriction):</span>
+                   <p className="mt-1">
+                     Your backend is integrated with a free development/sandbox tier of <strong>Resend</strong>. In sandbox mode, Resend prevents sending emails to external check-in domains (like Yahoo or Outlook) until you register a custom verified domain inside your Resend account.
+                   </p>
+                   <p className="mt-2 font-bold text-rose-800">
+                     How to test successfully:
+                   </p>
+                   <ul className="list-disc list-inside mt-1 pl-1 space-y-1">
+                     <li>Change the recipient email to your registered developer email address: <strong className="font-bold underline">josephsweetsinc@gmail.com</strong></li>
+                     <li>Or log in to your Resend dashboard, add <strong className="font-semibold">{recipientEmail}</strong> as an authorized Single Recipient, or verify your custom domain.</li>
+                   </ul>
+                 </div>
+               ) : null}
+
+               {emailErrorDetails.toLowerCase().includes('api key') || 
+                emailErrorDetails.toLowerCase().includes('invalid') ||
+                emailErrorDetails.toLowerCase().includes('missing') ? (
+                 <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
+                   <span className="font-bold block text-sm mb-1 text-rose-800">🔑 Resend API Key Configuration Guide:</span>
+                   <p className="mt-1">
+                     The application server is receiving an invalid, missing, or unauthorized Resend API key. To configure your keys and send emails successfully:
+                   </p>
+                   <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-800">
+                     <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com</a>) and copy your API Key (starts with <code className="bg-rose-100 px-1 rounded font-mono">re_</code>).</li>
+                     <li>In Google AI Studio, open the <strong>Settings / Environment Variables</strong> panel.</li>
+                     <li>Add or update the secret variable with the Name <strong className="font-mono">RESEND_API_KEY</strong> and paste your key as the Value.</li>
+                     <li>Save, wait a few seconds, and click "Email Report" to try again!</li>
+                   </ol>
+                 </div>
+               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Result Card */}
@@ -280,15 +561,15 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                 {report.status}
               </h2>
               <p className={`mt-2 font-semibold ${isCompliant ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {isCompliant ? 'Patient meets DOT compliance standards' : 'Patient does not meet DOT compliance standards'}
+                {isCompliant ? 'Meets DOT/FAA CPAP compliance standards' : 'Does not meet DOT/FAA CPAP compliance standards'}
               </p>
             </div>
 
             <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-6">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Patient Details</h3>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Driver / Pilot Details</h3>
                 <div className="space-y-4">
-                  <DetailItem icon={<User size={18} />} label="Patient Name" value={report.patientName} />
+                  <DetailItem icon={<User size={18} />} label="Full Name" value={report.patientName} />
                   {report.dob && <DetailItem icon={<Calendar size={18} />} label="Date of Birth" value={report.dob} />}
                   {report.licenseNumber && (
                     <DetailItem 
@@ -297,7 +578,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                       value={`${report.licenseNumber} (${report.licenseState || 'N/A'})`} 
                     />
                   )}
-                  <DetailItem icon={<Calendar size={18} />} label="Reporting Period" value={`${report.metrics.start_date} - ${report.metrics.end_date}`} />
+                  <DetailItem icon={<Calendar size={18} />} label="Reporting Period" value={`${report.metrics.report_start_date} - ${report.metrics.report_end_date}`} />
                   <DetailItem icon={<Clock size={18} />} label="Processed On" value={formatDate(report.createdAt)} />
                 </div>
               </div>
@@ -305,22 +586,36 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
               <div className="space-y-6">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Compliance Metrics</h3>
                 <div className="space-y-4">
-                  <MetricItem label="Compliance %" value={`${report.metrics.compliance_percentage}%`} threshold="≥ 70%" pass={report.metrics.compliance_percentage >= 70} />
+                  {report.metrics.device_type && <MetricItem label="Device Type" value={report.metrics.device_type} threshold="N/A" pass={true} />}
+                  <MetricItem label="Usage %" value={`${report.metrics.usage_days_percent}%`} threshold="≥ 70%" pass={report.metrics.usage_days_percent >= 70} />
                   <MetricItem label="Avg Usage" value={`${report.metrics.average_usage_hours} hrs`} threshold="≥ 4.0 hrs" pass={report.metrics.average_usage_hours >= 4} />
-                  <MetricItem label="Total Nights" value={report.metrics.total_nights.toString()} threshold="≥ 30" pass={report.metrics.total_nights >= 30} />
+                  <MetricItem label="Total Days" value={report.metrics.total_days.toString()} threshold="≥ 30" pass={report.metrics.total_days >= 30} />
                   <MetricItem label="AHI" value={report.metrics.ahi.toString()} threshold="N/A" pass={true} />
                 </div>
               </div>
+            </div>
+
+            {/* Primary Action */}
+            <div className="p-8 pt-0">
+              <button
+                onClick={() => setShowLetterPreview(true)}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl transition-all shadow-xl shadow-blue-100 flex items-center justify-center gap-3 text-lg group"
+              >
+                <div className="p-2 bg-white/20 rounded-lg group-hover:scale-110 transition-transform">
+                  <FileText size={24} />
+                </div>
+                <span>Generate Official Certified Letter</span>
+              </button>
             </div>
           </section>
 
           <section className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
               <Activity size={18} className="text-blue-600" />
-              Medical Examiner Disclaimer
+              Compliance Disclaimer
             </h3>
             <p className="text-sm text-slate-600 leading-relaxed italic">
-              This report summarizes CPAP usage data extracted from clinical reports using artificial intelligence. This summary is intended for review by a licensed medical examiner as part of a DOT physical examination. The final determination of fitness for duty rests solely with the medical examiner.
+              This automated analysis is designed to facilitate quick compliance verification. Please verify results against the original raw CPAP report prior to your DOT or FAA physical exam.
             </p>
           </section>
         </div>
@@ -328,14 +623,14 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
         {/* Sidebar Info */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4">Clinic Information</h3>
+            <h3 className="font-bold text-slate-800 mb-4">Operator Information</h3>
             <div className="space-y-3">
               <div>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Clinic Name</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Operator / Company Name</p>
                 <p className="text-slate-700 font-medium">{profile.clinicName}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Staff Member</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Authorized User</p>
                 <p className="text-slate-700 font-medium">{profile.displayName || profile.email}</p>
               </div>
             </div>

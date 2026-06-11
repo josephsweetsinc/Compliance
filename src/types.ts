@@ -4,15 +4,17 @@ export interface UserProfile {
   displayName: string;
   clinicName: string;
   createdAt: string;
+  autoEmailEnabled?: boolean;
 }
 
 export interface ComplianceMetrics {
   patient_name: string;
-  start_date: string;
-  end_date: string;
-  total_nights: number;
-  nights_over_4_hours: number;
-  compliance_percentage: number;
+  device_type: string;
+  report_start_date: string;
+  report_end_date: string;
+  total_days: number;
+  days_used_4_plus_hours: number;
+  usage_days_percent: number;
   average_usage_hours: number;
   ahi: number;
 }
@@ -27,6 +29,7 @@ export interface ComplianceReport {
   metrics: ComplianceMetrics;
   status: 'Compliant' | 'Non-Compliant';
   createdAt: string;
+  expiresAt: string;
   pdfUrl?: string;
 }
 

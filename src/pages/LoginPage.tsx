@@ -21,13 +21,16 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
         <div className="flex justify-center mb-6">
-          <div className="p-4 bg-blue-50 rounded-2xl">
-            <Activity className="text-blue-600" size={48} />
-          </div>
+          <img
+            src="/src/assets/images/complyzzz_logo_1781018719318.png"
+            alt="ComplyZzz Logo"
+            className="w-20 h-20 object-contain rounded-2xl shadow-lg border border-slate-100"
+            referrerPolicy="no-referrer"
+          />
         </div>
         
-        <h1 className="text-3xl font-bold text-slate-900 text-center mb-2">DOT CPAP Compliance</h1>
-        <p className="text-slate-500 text-center mb-8">Occupational Health Clinic Portal</p>
+        <h1 className="text-3xl font-extrabold text-slate-950 text-center mb-1">ComplyZzz</h1>
+        <p className="text-slate-500 text-center mb-8 font-medium">CPAP Compliance Verification Portal</p>
         
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl">
@@ -45,8 +48,8 @@ export default function LoginPage() {
         </button>
 
         <div className="mt-8 pt-8 border-t border-slate-100 text-center">
-          <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-2">Secure Portal</p>
-          <p className="text-sm text-slate-500">Authorized clinic staff only. HIPAA compliant data handling.</p>
+          <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-2">Privacy & Security Gate</p>
+          <p className="text-sm text-slate-500">Your CPAP report is analysed temporarily and deleted in 15 minutes for security.</p>
         </div>
       </div>
     </div>
