@@ -1,1 +1,124 @@
 @import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+/* Theme transition effect */
+* {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Global Dark Mode Variables & Class Interceptors */
+.dark {
+  color-scheme: dark;
+  --bg-white-override: #0f172a;
+  --bg-slate-50-override: #0b0f19;
+  --border-slate-100-override: rgba(255, 255, 255, 0.08);
+  --border-slate-200-override: rgba(255, 255, 255, 0.14);
+  --text-slate-950-override: #ffffff;
+  --text-slate-900-override: #f8fafc;
+  --text-slate-800-override: #f1f5f9;
+  --text-slate-700-override: #e2e8f0;
+  --text-slate-650-override: #cbd5e1;
+  --text-slate-600-override: #94a3b8;
+  --text-slate-500-override: #64748b;
+  --text-slate-400-override: #475569;
+}
+
+/* Component Overrides in Dark Mode */
+.dark .bg-white {
+  background-color: var(--bg-white-override) !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: var(--bg-slate-50-override) !important;
+}
+
+.dark .border-slate-100 {
+  border-color: var(--border-slate-100-override) !important;
+}
+
+.dark .border-slate-200 {
+  border-color: var(--border-slate-200-override) !important;
+}
+
+/* Handle Dividers and Tables */
+.dark .divide-slate-50 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border-slate-100-override) !important;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border-slate-200-override) !important;
+}
+
+/* Text Overrides for precise readability */
+.dark .text-slate-950 {
+  color: var(--text-slate-950-override) !important;
+}
+
+.dark .text-slate-905 {
+  color: var(--text-slate-900-override) !important;
+}
+
+.dark .text-slate-900 {
+  color: var(--text-slate-900-override) !important;
+}
+
+.dark .text-slate-800 {
+  color: var(--text-slate-800-override) !important;
+}
+
+.dark .text-slate-705 {
+  color: var(--text-slate-70-override) !important;
+}
+
+.dark .text-slate-700 {
+  color: var(--text-slate-700-override) !important;
+}
+
+.dark .text-slate-600 {
+  color: var(--text-slate-650-override) !important;
+}
+
+.dark .text-slate-500 {
+  color: var(--text-slate-500-override) !important;
+}
+
+.dark .text-slate-400 {
+  color: var(--text-slate-500-override) !important;
+}
+
+/* Input elements in Dark Theme */
+.dark input, 
+.dark select, 
+.dark textarea {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #475569 !important;
+}
+
+/* Dynamic Hover and Selection Styles */
+.dark .hover\:bg-slate-50:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.dark .bg-slate-50\/80 {
+  background-color: rgba(11, 15, 25, 0.8) !important;
+}
+
+/* Keep clinical letter white paper or render with soft warm pages style */
+.dark .font-serif.bg-white {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4) !important;
+}
+.dark .font-serif.text-slate-800 {
+  color: #1e293b !important;
+}
+

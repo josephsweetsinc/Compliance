@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { 
   Activity, 
   CheckCircle2, 
@@ -20,36 +21,37 @@ export default function LandingPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
+    <div className="min-h-screen bg-white dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden transition-colors duration-200">
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-[#0b0f19]/80 backdrop-blur-md border-b border-slate-100 dark:border-slate-800/60 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
               src="/src/assets/images/complyzzz_logo_1781018719318.png"
               alt="ComplyZzz Logo"
-              className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100"
+              className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100 dark:border-slate-800"
               referrerPolicy="no-referrer"
             />
-            <span className="font-extrabold text-2xl tracking-tight text-slate-950">
-              Comply<span className="text-blue-600">Zzz</span>
+            <span className="font-extrabold text-2xl tracking-tight text-slate-950 dark:text-white">
+              Comply<span className="text-blue-600 dark:text-blue-500">Zzz</span>
             </span>
           </div>
           <div className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">Features</a>
-            <a href="#how-it-works" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">How it Works</a>
-            <a href="#security" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">Security</a>
+            <a href="#features" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Features</a>
+            <a href="#how-it-works" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">How it Works</a>
+            <a href="#security" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Security</a>
           </div>
           <div className="flex items-center gap-4">
+            <ThemeToggle />
             <button 
               onClick={() => navigate('/login')}
-              className="text-sm font-bold text-slate-700 hover:text-blue-600 transition-colors px-4 py-2"
+              className="text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-4 py-2 cursor-pointer"
             >
               Sign In
             </button>
             <button 
               onClick={() => navigate('/login')}
-              className="bg-slate-900 text-white px-5 py-2.5 rounded-full text-sm font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+              className="bg-slate-900 dark:bg-blue-600 text-white px-5 py-2.5 rounded-full text-sm font-bold hover:bg-slate-800 dark:hover:bg-blue-700 transition-all shadow-lg shadow-slate-200 dark:shadow-none cursor-pointer"
             >
               Get Started
             </button>

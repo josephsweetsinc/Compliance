@@ -67,12 +67,12 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
     <div className="space-y-8">
       <header className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500">Welcome back, {profile.displayName || 'Operator'}</p>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
+          <p className="text-slate-500 dark:text-slate-400">Welcome back, {profile.displayName || 'Operator'}</p>
         </div>
         <Link
           to="/dashboard/upload"
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200"
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 dark:shadow-none cursor-pointer"
         >
           <FileUp size={20} />
           <span>Upload New Report</span>
@@ -103,43 +103,43 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
 
       <div className="grid grid-cols-1 gap-8">
         {/* Recent Activity */}
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-            <h2 className="text-xl font-bold text-slate-800">Recent Activity</h2>
-            <Link to="/history" className="text-blue-600 hover:text-blue-700 text-sm font-semibold flex items-center gap-1">
+        <section className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm overflow-hidden transition-colors duration-200">
+          <div className="p-6 border-b border-slate-50 dark:border-slate-800/60 flex justify-between items-center">
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white">Recent Activity</h2>
+            <Link to="/history" className="text-blue-600 dark:text-blue-400 hover:text-blue-750 dark:hover:text-blue-300 text-sm font-semibold flex items-center gap-1">
               View All <ChevronRight size={16} />
             </Link>
           </div>
 
           {loading ? (
             <div className="p-12 flex justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 dark:border-blue-400"></div>
             </div>
           ) : recentReports.length > 0 ? (
-            <div className="divide-y divide-slate-50">
+            <div className="divide-y divide-slate-50 dark:divide-slate-800">
               {recentReports.map((report) => (
                 <Link
                   key={report.id}
                   to={`/report/${report.id}`}
-                  className="flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
+                  className="flex items-center justify-between p-6 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg ${report.status === 'Compliant' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                    <div className={`p-2 rounded-lg ${report.status === 'Compliant' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400'}`}>
                       {report.status === 'Compliant' ? <CheckCircle size={20} /> : <XCircle size={20} />}
                     </div>
                     <div>
-                      <h3 className="font-bold text-slate-800">{report.patientName}</h3>
-                      <p className="text-sm text-slate-500 flex items-center gap-1">
+                      <h3 className="font-bold text-slate-800 dark:text-slate-100">{report.patientName}</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
                         <Clock size={14} /> {formatDate(report.createdAt)}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-right hidden sm:block">
-                      <p className="text-sm font-semibold text-slate-700">{report.metrics.compliance_percentage}% Compliance</p>
-                      <p className="text-xs text-slate-400">{report.metrics.average_usage_hours} hrs avg usage</p>
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{report.metrics.compliance_percentage}% Compliance</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{report.metrics.average_usage_hours} hrs avg usage</p>
                     </div>
-                    <ChevronRight size={20} className="text-slate-300" />
+                    <ChevronRight size={20} className="text-slate-300 dark:text-slate-600" />
                   </div>
                 </Link>
               ))}
@@ -147,12 +147,12 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
           ) : (
             <div className="p-12 text-center">
               <div className="mb-4 flex justify-center">
-                <div className="p-4 bg-slate-50 rounded-full">
-                  <FileUp className="text-slate-300" size={32} />
+                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-full">
+                  <FileUp className="text-slate-300 dark:text-slate-600" size={32} />
                 </div>
               </div>
-              <p className="text-slate-500 font-medium">No reports uploaded yet.</p>
-              <Link to="/upload" className="text-blue-600 hover:underline text-sm font-semibold mt-2 inline-block">
+              <p className="text-slate-500 dark:text-slate-400 font-medium">No reports uploaded yet.</p>
+              <Link to="/upload" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-semibold mt-2 inline-block">
                 Upload your first report
               </Link>
             </div>
@@ -160,41 +160,41 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
         </section>
 
         {/* Portal settings / Notification preferences */}
-        <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6" id="settings-preferences">
-          <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
-            <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
+        <section className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm p-6" id="settings-preferences">
+          <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-850 pb-4 mb-6">
+            <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300">
               <Settings size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">Notification Preferences</h2>
-              <p className="text-xs text-slate-400">Configure administrative notifications for generated CPAP compliance letters</p>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white">Notification Preferences</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Configure administrative notifications for generated CPAP compliance letters</p>
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-5 rounded-xl bg-slate-50 border border-slate-100">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-5 rounded-xl bg-slate-50 dark:bg-slate-850/40 border border-slate-100 dark:border-slate-800/60">
             <div className="space-y-1 max-w-xl">
               <div className="flex items-center gap-2">
-                <Mail className="text-blue-600 shrink-0" size={18} />
-                <span className="font-semibold text-slate-800">Automated Operator Email Summary</span>
+                <Mail className="text-blue-600 dark:text-blue-400 shrink-0" size={18} />
+                <span className="font-semibold text-slate-800 dark:text-slate-200">Automated Operator Email Summary</span>
               </div>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                When a new CPAP report is uploaded and successfully processed, automatically dispatch an analytical compliance scorecard summary directly to your registered operator email: <span className="font-semibold text-slate-705 underline">{profile.email}</span>.
+              <p className="text-sm text-slate-500 dark:text-slate-355 leading-relaxed">
+                When a new CPAP report is uploaded and successfully processed, automatically dispatch an analytical compliance scorecard summary directly to your registered operator email: <span className="font-semibold text-slate-705 dark:text-slate-200 underline">{profile.email}</span>.
               </p>
             </div>
 
             <div className="flex items-center gap-3 md:self-center self-end">
               {savingSettings && (
-                <span className="text-xs text-slate-400 flex items-center gap-1">
+                <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
                   <Loader2 size={12} className="animate-spin" /> Saving...
                 </span>
               )}
               {settingsSuccess && (
-                <span className="text-xs text-emerald-600 flex items-center gap-1 font-semibold animate-pulse">
+                <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-semibold animate-pulse">
                   <ShieldCheck size={14} /> Preference Saved
                 </span>
               )}
               {settingsError && (
-                <span className="text-xs text-rose-600 font-medium">
+                <span className="text-xs text-rose-600 dark:text-rose-400 font-medium">
                   {settingsError}
                 </span>
               )}
@@ -204,7 +204,7 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
                 onClick={() => toggleAutoEmail(profile.autoEmailEnabled === false)}
                 disabled={savingSettings}
                 className={`relative z-0 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 ${
-                  profile.autoEmailEnabled !== false ? 'bg-blue-600' : 'bg-slate-200'
+                  profile.autoEmailEnabled !== false ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-700'
                 }`}
                 type="button"
                 id="toggle-auto-email"
@@ -225,14 +225,15 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
 }
 
 function StatCard({ icon, label, value, bgColor }: { icon: React.ReactNode; label: string; value: string; bgColor: string }) {
+  const darkBg = bgColor === 'bg-blue-50' ? 'dark:bg-blue-950/30 dark:text-blue-400' : bgColor === 'bg-emerald-50' ? 'dark:bg-emerald-950/30' : 'dark:bg-rose-950/30';
   return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-      <div className={`p-4 rounded-xl ${bgColor}`}>
+    <div className="bg-white dark:bg-[#0f172a] p-6 rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm flex items-center gap-4 transition-colors duration-200">
+      <div className={`p-4 rounded-xl ${bgColor} ${darkBg}`}>
         {icon}
       </div>
       <div>
-        <p className="text-sm font-semibold text-slate-400 uppercase tracking-wider">{label}</p>
-        <p className="text-2xl font-bold text-slate-900">{value}</p>
+        <p className="text-sm font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{label}</p>
+        <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
       </div>
     </div>
   );

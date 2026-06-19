@@ -6,6 +6,7 @@ import { UserProfile } from './types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle } from 'lucide-react';
+import { ThemeToggle } from './components/ThemeToggle';
 
 // Pages
 import LandingPage from './pages/LandingPage';
@@ -21,6 +22,17 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Immediate early-theme detection
+    const saved = localStorage.getItem('theme');
+    const system = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && system)) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -44,8 +56,8 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0b0f19]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 dark:border-blue-400"></div>
       </div>
     );
   }
@@ -86,18 +98,18 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0b0f19] text-slate-800 dark:text-slate-100 flex transition-colors duration-200">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
-        <div className="p-5 flex items-center gap-3 border-b border-slate-100">
+      <aside className="w-64 bg-white dark:bg-[#0f172a] border-r border-slate-200 dark:border-slate-800/60 flex flex-col transition-colors duration-200">
+        <div className="p-5 flex items-center gap-3 border-b border-slate-100 dark:border-slate-800/60">
           <img
             src="/src/assets/images/complyzzz_logo_1781018719318.png"
             alt="ComplyZzz Balloon Logo"
-            className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100 cursor-pointer"
+            className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100 dark:border-slate-800 cursor-pointer"
             referrerPolicy="no-referrer"
             onClick={() => navigate('/dashboard')}
           />
-          <span className="font-extrabold text-slate-950 text-xl tracking-tight cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/dashboard')}>ComplyZzz</span>
+          <span className="font-extrabold text-slate-950 dark:text-white text-xl tracking-tight cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/dashboard')}>ComplyZzz</span>
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
@@ -107,14 +119,17 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
           <SidebarLink to="/dashboard/help" icon={<HelpCircle size={20} />} label="Help & FAQ" />
         </nav>
 
-        <div className="p-4 border-t border-slate-100">
-          <div className="mb-4 px-2">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Operator Profile</p>
-            <p className="text-sm font-medium text-slate-700 truncate">{profile.clinicName}</p>
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="mb-4 px-2 flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Operator Profile</p>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 truncate" title={profile.clinicName}>{profile.clinicName}</p>
+            </div>
+            <ThemeToggle />
           </div>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-red-600 rounded-lg transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors cursor-pointer"
           >
             <LogOut size={18} />
             <span>Sign Out</span>
@@ -143,7 +158,7 @@ function SidebarLink({ to, icon, label }: { to: string; icon: React.ReactNode; l
   return (
     <Link
       to={to}
-      className="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors font-medium"
+      className="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors font-medium"
     >
       {icon}
       <span>{label}</span>
@@ -172,37 +187,40 @@ function ProfileSetup({ user, setProfile }: { user: User; setProfile: (p: UserPr
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0b0f19] p-4 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      <div className="max-w-md w-full bg-white dark:bg-[#0f172a] rounded-2xl shadow-xl p-8 border border-slate-100 dark:border-slate-800/60 relative">
+        <div className="absolute top-6 right-6">
+          <ThemeToggle />
+        </div>
         <div className="flex justify-center mb-6">
           <img
             src="/src/assets/images/complyzzz_logo_1781018719318.png"
             alt="ComplyZzz Logo"
-            className="w-16 h-16 object-contain rounded-2xl shadow-md border border-slate-100"
+            className="w-16 h-16 object-contain rounded-2xl shadow-md border border-slate-100 dark:border-slate-800"
             referrerPolicy="no-referrer"
           />
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 text-center mb-2">ComplyZzz Setup</h1>
-        <p className="text-slate-500 text-center text-sm mb-6">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white text-center mb-2">ComplyZzz Setup</h1>
+        <p className="text-slate-500 dark:text-slate-450 text-center text-sm mb-6 leading-relaxed">
           Welcome! Please enter your personal operator name, employer, or company name. This will register your profile and appear as the authority on generated compliance letters.
         </p>
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Company, Employer, or Personal Representative</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Company, Employer, or Personal Representative</label>
             <input
               type="text"
               required
               value={clinicName}
               onChange={(e) => setClinicName(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              className="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 dark:bg-slate-850 dark:text-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-400"
               placeholder="e.g. Independent Driver, Falcon Air, or Self"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition-colors disabled:opacity-50"
+            className="w-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
           >
             {loading ? 'Setting up...' : 'Complete Profile Setup'}
           </button>
