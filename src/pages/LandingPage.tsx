@@ -169,7 +169,7 @@ export default function LandingPage() {
             <FeatureCard 
               icon={<Shield size={24} className="text-blue-600" />}
               title="Privacy First"
-              description="We respect your medical privacy. Uploaded reports are processed through secure TLS encrypted pipelines in accordance with healthcare privacy standards."
+              description="We respect your medical privacy. Uploaded reports are automatically scrubbed on a secure 15-minute expiration timer."
             />
           </div>
         </div>
@@ -257,10 +257,10 @@ export default function LandingPage() {
                   title="Secure Data Protocols"
                   description="All communication is encrypted using state-of-the-art secure transmission protocols."
                 />
-                <SecurityItem 
+                <SecurityItem
                   icon={<Zap className="text-blue-400" />}
-                  title="Encrypted Processing"
-                  description="Our AI extracts metrics on-the-fly through secure encrypted channels. Zero model training on sensitive patient data."
+                  title="Zero-Retention Processing"
+                  description="Our AI extracts strings on-the-fly and stores reports under an ephemeral expiration timer. No training on user data."
                 />
                 <SecurityItem 
                   icon={<Stethoscope className="text-purple-400" />}

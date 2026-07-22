@@ -170,6 +170,7 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         const newDocRef = doc(reportsRef);
         
         const now = new Date();
+        const expiryDate = new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes from now
 
         const reportData: ComplianceReport = {
           id: newDocRef.id,
@@ -181,6 +182,7 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
           metrics,
           status,
           createdAt: now.toISOString(),
+          expiresAt: expiryDate.toISOString(),
         };
 
         await setDoc(newDocRef, reportData);

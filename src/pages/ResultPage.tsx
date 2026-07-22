@@ -18,6 +18,10 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   const [recipientEmail, setRecipientEmail] = useState(profile.email || '');
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorDetails, setEmailErrorDetails] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState<string>('');
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(900);
+  const [percentageRemaining, setPercentageRemaining] = useState<number>(100);
+  const [isExpiringSoon, setIsExpiringSoon] = useState(false);
   const navigate = useNavigate();
 
   // Multi-Stakeholder Email Dispatch States
@@ -40,7 +44,43 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     custom: { status: 'idle' },
   });
 
-  // Expiration countdown removed for accurate HIPAA compliance record retention
+  // Expiration countdown
+  useEffect(() => {
+    if (!report || !report.expiresAt) return;
+
+    const timer = setInterval(async () => {
+      const expiry = new Date(report.expiresAt).getTime();
+      const created = report.createdAt ? new Date(report.createdAt).getTime() : expiry - 15 * 60 * 1000;
+      const totalSpan = expiry - created > 0 ? expiry - created : 15 * 60 * 1000;
+      const now = new Date().getTime();
+      const diff = expiry - now;
+
+      if (diff <= 0) {
+        clearInterval(timer);
+        setTimeLeft('Expired');
+        setSecondsRemaining(0);
+        setPercentageRemaining(0);
+        // Auto delete on expiration for security
+        try {
+          await deleteDoc(doc(db, 'reports', report.id));
+        } catch (e) {
+          console.error("Auto-delete failed", e);
+        }
+        navigate('/dashboard/history', { state: { expired: true, patientName: report.patientName } });
+        return;
+      }
+
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setTimeLeft(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      setSecondsRemaining(Math.max(0, Math.floor(diff / 1000)));
+      setPercentageRemaining(Math.max(0, Math.min(100, (diff / totalSpan) * 100)));
+      setIsExpiringSoon(minutes < 2);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [report, navigate]);
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -478,36 +518,76 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* HIPAA Privacy and Data Security Banner */}
-      <div className="p-5 rounded-2xl border bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 transition-all shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-start gap-4 z-10">
-          <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200/80 dark:border-slate-700 shrink-0">
-            <Shield className="w-6 h-6 stroke-[2.2] text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h4 className="text-base font-bold tracking-tight">HIPAA & Data Privacy Guard</h4>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
-                Encrypted & Verified
-              </span>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
-              To protect sensitive healthcare and physical examination data, this compliance report is stored with <strong>AES-256 encryption</strong> in your secure clinic database. Access is strictly audited and restricted to authorized operators.
-            </p>
-          </div>
-        </div>
+      {/* Privacy and Expiration Hub Component */}
+      {(() => {
+        const remainingSec = secondsRemaining;
+        let themeClasses = 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-100/70 dark:border-emerald-900/60 text-emerald-800 dark:text-emerald-300';
+        let barColor = 'bg-emerald-500';
+        let pulseClass = '';
+        let statusBadge = 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+        let statusLabel = 'Highly Secure';
 
-        <div className="flex items-center gap-3 shrink-0 z-10 self-end md:self-auto">
-          <button
-            onClick={handleDelete}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-            title="Permanently Delete Report"
-          >
-            <Trash2 size={14} />
-            <span>Delete Record</span>
-          </button>
-        </div>
-      </div>
+        if (remainingSec <= 120) { // < 2 minutes: Critical
+          themeClasses = 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-300';
+          barColor = 'bg-rose-500';
+          pulseClass = 'animate-pulse';
+          statusBadge = 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+          statusLabel = 'Purging Soon';
+        } else if (remainingSec <= 600) { // < 10 minutes: Warning
+          themeClasses = 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-900/60 text-amber-800 dark:text-amber-300';
+          barColor = 'bg-amber-500';
+          statusBadge = 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+          statusLabel = 'Temporary Storage';
+        }
+
+        return (
+          <div className={`p-5 rounded-2xl border transition-all duration-500 shadow-sm relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6 ${themeClasses} ${pulseClass}`}>
+
+            {/* Visual Progress Bar Track */}
+            <div className="absolute inset-x-0 bottom-0 h-1.5 bg-slate-200/40 dark:bg-slate-800/60 overflow-hidden">
+              <div
+                className={`h-full ${barColor} transition-all duration-1000 ease-linear rounded-r`}
+                style={{ width: `${percentageRemaining}%` }}
+              ></div>
+            </div>
+
+            <div className="flex items-start gap-4 z-10">
+              <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 shrink-0">
+                <Clock className="w-6 h-6 stroke-[2.2] text-slate-600 dark:text-slate-300" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-base font-bold tracking-tight">Privacy Guard: Automatic Purge Timer</h4>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusBadge}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+                <p className="text-xs opacity-85 leading-relaxed max-w-2xl">
+                  To protect your sensitive healthcare and physical examination data, this certified CPAP report resides entirely in ephemeral storage. It will be permanently, non-retrievably erased from our cloud server in <strong className="font-semibold font-mono">{timeLeft || 'calculating...'}</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 shrink-0 z-10 self-end md:self-auto">
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-bold font-mono uppercase tracking-widest opacity-60">Time Remaining</span>
+                <span className="text-3xl font-black font-mono tracking-tighter leading-none mt-1 min-w-[80px] text-right">
+                  {timeLeft || '--:--'}
+                </span>
+              </div>
+              <div className="h-10 w-[1px] bg-slate-300/30 hidden md:block"></div>
+              <button
+                onClick={handleDelete}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                title="Immediate Security Purge"
+              >
+                <Trash2 size={14} />
+                <span>Purge Data Now</span>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       <header className="flex justify-between items-center">
         <Link to="/history" className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors">

@@ -494,24 +494,24 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   doc.text(`Verification Date: ${formatDate(new Date())}`, 131, sigY + 17);
   doc.text(`Digital Seal Signature Signed Locally`, 131, sigY + 21);
 
-  // 9. SECURITY & CONFIDENTIALITY FOOTER
+  // 9. SECURITY EPHEMERAL COMPLIANCE FOOTER
   const footerY = 244;
   doc.setFillColor(colorBgMuted.r, colorBgMuted.g, colorBgMuted.b);
   doc.setDrawColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
   doc.setLineWidth(0.4);
   // Box for privacy instruction
   doc.roundedRect(20, footerY - 4, 170, 20, 1.5, 1.5, 'F');
-  
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.setTextColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
-  doc.text('🔒 OFFICIAL CONFIDENTIAL MEDICAL & COMPLIANCE RECORD', 24, footerY + 1);
+  doc.setTextColor(colorDanger.r, colorDanger.g, colorDanger.b);
+  doc.text('⚠️ ZERO-TRUST EPHEMERAL PURGE WARNING (15 MIN EXPIRE)', 24, footerY + 1);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(colorSecondary.r, colorSecondary.g, colorSecondary.b);
-  const privacyDisclaimer = 
-    "This certified compliance document contains driver health and CPAP therapy metrics intended strictly for official FMCSA / DOT physical examination verification. Store and transmit this document according to HIPAA and organizational privacy guidelines.";
+  const privacyDisclaimer =
+    "To guarantee maximum confidentiality and protect medical data, this compliance assessor deletes all processed files 15 minutes after upload. This PDF represents the permanent, non-recoverable certifier of this session. Please save this file to your local computer or secure health record repository immediately.";
   
   const splitDisclaimer = doc.splitTextToSize(privacyDisclaimer, 162);
   doc.text(splitDisclaimer, 24, footerY + 5);
