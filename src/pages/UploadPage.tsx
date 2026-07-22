@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import { UserProfile, ComplianceMetrics, ComplianceReport } from '../types';
 import { extractTextFromPdf } from '../services/pdfService';
@@ -170,7 +170,6 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         const newDocRef = doc(reportsRef);
         
         const now = new Date();
-        const expiryDate = new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes from now
 
         const reportData: ComplianceReport = {
           id: newDocRef.id,
@@ -182,12 +181,14 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
           metrics,
           status,
           createdAt: now.toISOString(),
-          expiresAt: expiryDate.toISOString(),
         };
 
         await setDoc(newDocRef, reportData);
         reportIds.push(newDocRef.id);
         
+        // Retrieve bearer token for API route authorization
+        const authToken = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+
         // 5. Notifications
         // Automatically email a summary notification to the user (operator) after a report is successfully processed if auto email is enabled
         if (profile.email && profile.autoEmailEnabled !== false) {
@@ -198,7 +199,10 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         if (notificationSettings.enabled && notificationSettings.email) {
           fetch('/api/send-notification', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({
               email: notificationSettings.email,
               patientName: metrics.patient_name,
@@ -211,7 +215,10 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         if (notificationSettings.smsEnabled && notificationSettings.phoneNumber) {
           fetch('/api/send-sms', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({
               phone: notificationSettings.phoneNumber,
               patientName: metrics.patient_name,

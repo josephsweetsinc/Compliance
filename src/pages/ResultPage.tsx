@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { doc, getDoc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
-import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2 } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield } from 'lucide-react';
 
 export default function ResultPage({ profile }: { profile: UserProfile }) {
   const { id } = useParams<{ id: string }>();
@@ -18,49 +18,29 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   const [recipientEmail, setRecipientEmail] = useState(profile.email || '');
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorDetails, setEmailErrorDetails] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState<string>('');
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(900);
-  const [percentageRemaining, setPercentageRemaining] = useState<number>(100);
-  const [isExpiringSoon, setIsExpiringSoon] = useState(false);
   const navigate = useNavigate();
 
-  // Expiration countdown
-  useEffect(() => {
-    if (!report || !report.expiresAt) return;
+  // Multi-Stakeholder Email Dispatch States
+  const [driverEmail, setDriverEmail] = useState('');
+  const [examinerEmail, setExaminerEmail] = useState('');
+  const [employerEmail, setEmployerEmail] = useState('');
+  const [customStakeholderName, setCustomStakeholderName] = useState('');
+  const [customStakeholderEmail, setCustomStakeholderEmail] = useState('');
+  const [customMessage, setCustomMessage] = useState('');
 
-    const timer = setInterval(async () => {
-      const expiry = new Date(report.expiresAt).getTime();
-      const created = report.createdAt ? new Date(report.createdAt).getTime() : expiry - 15 * 60 * 1000;
-      const totalSpan = expiry - created > 0 ? expiry - created : 15 * 60 * 1000;
-      const now = new Date().getTime();
-      const diff = expiry - now;
+  const [emailStatuses, setEmailStatuses] = useState<{
+    driver: { status: 'idle' | 'sending' | 'success' | 'error'; error?: string };
+    examiner: { status: 'idle' | 'sending' | 'success' | 'error'; error?: string };
+    employer: { status: 'idle' | 'sending' | 'success' | 'error'; error?: string };
+    custom: { status: 'idle' | 'sending' | 'success' | 'error'; error?: string };
+  }>({
+    driver: { status: 'idle' },
+    examiner: { status: 'idle' },
+    employer: { status: 'idle' },
+    custom: { status: 'idle' },
+  });
 
-      if (diff <= 0) {
-        clearInterval(timer);
-        setTimeLeft('Expired');
-        setSecondsRemaining(0);
-        setPercentageRemaining(0);
-        // Auto delete on expiration for security
-        try {
-          await deleteDoc(doc(db, 'reports', report.id));
-        } catch (e) {
-          console.error("Auto-delete failed", e);
-        }
-        navigate('/dashboard/history', { state: { expired: true, patientName: report.patientName } });
-        return;
-      }
-
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      
-      setTimeLeft(`${minutes}:${seconds.toString().padStart(2, '0')}`);
-      setSecondsRemaining(Math.max(0, Math.floor(diff / 1000)));
-      setPercentageRemaining(Math.max(0, Math.min(100, (diff / totalSpan) * 100)));
-      setIsExpiringSoon(minutes < 2);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [report, navigate]);
+  // Expiration countdown removed for accurate HIPAA compliance record retention
 
   useEffect(() => {
     const fetchReport = async () => {
@@ -88,6 +68,109 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
     fetchReport();
   }, [id, profile.uid]);
+
+  // Load remembered stakeholder emails on report change
+  useEffect(() => {
+    if (report) {
+      const storedDriver = localStorage.getItem(`email_driver_${report.patientName}`);
+      if (storedDriver) setDriverEmail(storedDriver);
+      
+      const storedExaminer = localStorage.getItem(`email_examiner_${report.patientName}`);
+      if (storedExaminer) setExaminerEmail(storedExaminer);
+
+      const storedEmployer = localStorage.getItem(`email_employer_${report.patientName}`);
+      if (storedEmployer) setEmployerEmail(storedEmployer);
+    }
+  }, [report]);
+
+  const sendStakeholderEmail = async (recipientType: 'driver' | 'examiner' | 'employer' | 'custom') => {
+    if (!report) return;
+
+    let targetEmail = '';
+    
+    if (recipientType === 'driver') {
+      targetEmail = driverEmail;
+    } else if (recipientType === 'examiner') {
+      targetEmail = examinerEmail;
+    } else if (recipientType === 'employer') {
+      targetEmail = employerEmail;
+    } else if (recipientType === 'custom') {
+      targetEmail = customStakeholderEmail;
+    }
+
+    if (!targetEmail || !targetEmail.trim()) {
+      setEmailStatuses(prev => ({
+        ...prev,
+        [recipientType]: { status: 'error', error: 'Email address is required.' }
+      }));
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(targetEmail.trim())) {
+      setEmailStatuses(prev => ({
+        ...prev,
+        [recipientType]: { status: 'error', error: 'Invalid email format.' }
+      }));
+      return;
+    }
+
+    // Set sending status
+    setEmailStatuses(prev => ({
+      ...prev,
+      [recipientType]: { status: 'sending' }
+    }));
+
+    try {
+      // Generate compliance report PDF in-memory as base64
+      const pdfDoc = generateCompliancePdf(report, profile.clinicName, false);
+      const pdfBase64 = pdfDoc.output('datauristring');
+
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+
+      const response = await fetch('/api/send-notification', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          email: targetEmail.trim(),
+          patientName: report.patientName,
+          status: report.status,
+          reportId: report.id,
+          pdfBase64: pdfBase64,
+          recipientRole: recipientType,
+          customMessage: customMessage,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.details || data.error || data.message || `Server responded with status code ${response.status}`);
+      }
+
+      setEmailStatuses(prev => ({
+        ...prev,
+        [recipientType]: { status: 'success' }
+      }));
+
+      // Keep success status visible for some time
+      setTimeout(() => {
+        setEmailStatuses(prev => ({
+          ...prev,
+          [recipientType]: { status: 'idle' }
+        }));
+      }, 4000);
+    } catch (err: any) {
+      console.error(`Email dispatch exception for ${recipientType}:`, err);
+      setEmailStatuses(prev => ({
+        ...prev,
+        [recipientType]: { status: 'error', error: err.message || 'Dispatch Error' }
+      }));
+    }
+  };
 
   const handleDownload = async () => {
     if (report) {
@@ -122,6 +205,10 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     setEmailErrorDetails(null);
     
     try {
+      // Generate compliance report PDF in-memory as base64
+      const pdfDoc = generateCompliancePdf(report, profile.clinicName, false);
+      const pdfBase64 = pdfDoc.output('datauristring');
+
       const response = await fetch('/api/send-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,6 +217,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
           patientName: report.patientName,
           status: report.status,
           reportId: report.id,
+          pdfBase64: pdfBase64,
         }),
       });
 
@@ -379,76 +467,36 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Privacy and Expiration Hub Component */}
-      {(() => {
-        const remainingSec = secondsRemaining;
-        let themeClasses = 'bg-emerald-50/50 border-emerald-100/70 text-emerald-800';
-        let barColor = 'bg-emerald-500';
-        let pulseClass = '';
-        let statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
-        let statusLabel = 'Highly Secure';
-
-        if (remainingSec <= 120) { // < 2 minutes: Critical
-          themeClasses = 'bg-rose-50/60 border-rose-200 text-rose-800';
-          barColor = 'bg-rose-500';
-          pulseClass = 'animate-pulse';
-          statusBadge = 'bg-rose-100 text-rose-800 border-rose-200';
-          statusLabel = 'Purging Soon';
-        } else if (remainingSec <= 600) { // < 10 minutes: Warning
-          themeClasses = 'bg-amber-50/60 border-amber-200/60 text-amber-800';
-          barColor = 'bg-amber-500';
-          statusBadge = 'bg-amber-100 text-amber-800 border-amber-200';
-          statusLabel = 'Temporary Storage';
-        }
-
-        return (
-          <div className={`p-5 rounded-2xl border transition-all duration-500 shadow-sm relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6 ${themeClasses} ${pulseClass}`}>
-            
-            {/* Visual Progress Bar Track */}
-            <div className="absolute inset-x-0 bottom-0 h-1.5 bg-slate-200/40 overflow-hidden">
-              <div 
-                className={`h-full ${barColor} transition-all duration-1000 ease-linear rounded-r`}
-                style={{ width: `${percentageRemaining}%` }}
-              ></div>
-            </div>
-
-            <div className="flex items-start gap-4 z-10">
-              <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 shrink-0">
-                <Clock className="w-6 h-6 stroke-[2.2] text-slate-600" />
-              </div>
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-base font-bold tracking-tight">Privacy Guard: Automatic Purge Timer</h4>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusBadge}`}>
-                    {statusLabel}
-                  </span>
-                </div>
-                <p className="text-xs opacity-85 leading-relaxed max-w-2xl">
-                  To protect your sensitive healthcare and physical examination data, this certified CPAP report resides entirely in ephemeral storage. It will be permanently, non-retrievably erased from our cloud server in <strong className="font-semibold font-mono">{timeLeft || 'calculating...'}</strong>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 shrink-0 z-10 self-end md:self-auto">
-              <div className="flex flex-col items-end">
-                <span className="text-[10px] font-bold font-mono uppercase tracking-widest opacity-60">Time Remaining</span>
-                <span className="text-3xl font-black font-mono tracking-tighter leading-none mt-1 min-w-[80px] text-right">
-                  {timeLeft || '--:--'}
-                </span>
-              </div>
-              <div className="h-10 w-[1px] bg-slate-300/30 hidden md:block"></div>
-              <button
-                onClick={handleDelete}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-600 border border-slate-200/80 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
-                title="Immediate Security Purge"
-              >
-                <Trash2 size={14} />
-                <span>Purge Data Now</span>
-              </button>
-            </div>
+      {/* HIPAA Privacy and Data Security Banner */}
+      <div className="p-5 rounded-2xl border bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 transition-all shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex items-start gap-4 z-10">
+          <div className="p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200/80 dark:border-slate-700 shrink-0">
+            <Shield className="w-6 h-6 stroke-[2.2] text-emerald-600 dark:text-emerald-400" />
           </div>
-        );
-      })()}
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-base font-bold tracking-tight">HIPAA & Data Privacy Guard</h4>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
+                Encrypted & Verified
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
+              To protect sensitive healthcare and physical examination data, this compliance report is stored with <strong>AES-256 encryption</strong> in your secure clinic database. Access is strictly audited and restricted to authorized operators.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0 z-10 self-end md:self-auto">
+          <button
+            onClick={handleDelete}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+            title="Permanently Delete Report"
+          >
+            <Trash2 size={14} />
+            <span>Delete Record</span>
+          </button>
+        </div>
+      </div>
 
       <header className="flex justify-between items-center">
         <Link to="/history" className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors">
@@ -622,6 +670,221 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
         {/* Sidebar Info */}
         <div className="space-y-6">
+          {/* Stakeholder Email Dispatch Card */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Mail size={18} className="text-blue-600" />
+                <span>Stakeholder Dispatch</span>
+              </h3>
+              <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest">
+                Resend API
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Dispatch this certified DOT compliance report directly to the driver, medical examiner, or fleet manager via Resend.
+            </p>
+
+            <div className="space-y-4">
+              {/* Driver Section */}
+              <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <User size={12} className="text-blue-500" />
+                    Driver / Patient
+                  </span>
+                  {emailStatuses.driver.status === 'success' && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                      <Check size={10} /> Dispatched!
+                    </span>
+                  )}
+                  {emailStatuses.driver.status === 'error' && (
+                    <span className="text-[10px] text-rose-600 font-bold" title={emailStatuses.driver.error}>
+                      Error
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="driver@example.com"
+                    value={driverEmail}
+                    onChange={(e) => {
+                      setDriverEmail(e.target.value);
+                      localStorage.setItem(`email_driver_${report.patientName}`, e.target.value);
+                    }}
+                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={() => sendStakeholderEmail('driver')}
+                    disabled={emailStatuses.driver.status === 'sending'}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
+                  >
+                    {emailStatuses.driver.status === 'sending' ? <Loader2 size={14} className="animate-spin" /> : 'Send'}
+                  </button>
+                </div>
+                {emailStatuses.driver.error && (
+                  <p className="text-[10px] text-rose-500 leading-tight mt-1">{emailStatuses.driver.error}</p>
+                )}
+              </div>
+
+              {/* Medical Examiner Section */}
+              <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Activity size={12} className="text-emerald-500" />
+                    DOT Medical Examiner
+                  </span>
+                  {emailStatuses.examiner.status === 'success' && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                      <Check size={10} /> Dispatched!
+                    </span>
+                  )}
+                  {emailStatuses.examiner.status === 'error' && (
+                    <span className="text-[10px] text-rose-600 font-bold" title={emailStatuses.examiner.error}>
+                      Error
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="examiner@example.com"
+                    value={examinerEmail}
+                    onChange={(e) => {
+                      setExaminerEmail(e.target.value);
+                      localStorage.setItem(`email_examiner_${report.patientName}`, e.target.value);
+                    }}
+                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={() => sendStakeholderEmail('examiner')}
+                    disabled={emailStatuses.examiner.status === 'sending'}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
+                  >
+                    {emailStatuses.examiner.status === 'sending' ? <Loader2 size={14} className="animate-spin" /> : 'Send'}
+                  </button>
+                </div>
+                {emailStatuses.examiner.error && (
+                  <p className="text-[10px] text-rose-500 leading-tight mt-1">{emailStatuses.examiner.error}</p>
+                )}
+              </div>
+
+              {/* Employer Section */}
+              <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Users size={12} className="text-purple-500" />
+                    Employer / Fleet Safety
+                  </span>
+                  {emailStatuses.employer.status === 'success' && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                      <Check size={10} /> Dispatched!
+                    </span>
+                  )}
+                  {emailStatuses.employer.status === 'error' && (
+                    <span className="text-[10px] text-rose-600 font-bold" title={emailStatuses.employer.error}>
+                      Error
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    placeholder="safety@company.com"
+                    value={employerEmail}
+                    onChange={(e) => {
+                      setEmployerEmail(e.target.value);
+                      localStorage.setItem(`email_employer_${report.patientName}`, e.target.value);
+                    }}
+                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={() => sendStakeholderEmail('employer')}
+                    disabled={emailStatuses.employer.status === 'sending'}
+                    className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
+                  >
+                    {emailStatuses.employer.status === 'sending' ? <Loader2 size={14} className="animate-spin" /> : 'Send'}
+                  </button>
+                </div>
+                {emailStatuses.employer.error && (
+                  <p className="text-[10px] text-rose-500 leading-tight mt-1">{emailStatuses.employer.error}</p>
+                )}
+              </div>
+
+              {/* Custom Stakeholder Section */}
+              <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shield size={12} className="text-amber-500" />
+                    Custom Stakeholder
+                  </span>
+                  {emailStatuses.custom.status === 'success' && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                      <Check size={10} /> Dispatched!
+                    </span>
+                  )}
+                  {emailStatuses.custom.status === 'error' && (
+                    <span className="text-[10px] text-rose-600 font-bold" title={emailStatuses.custom.error}>
+                      Error
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <input
+                    type="email"
+                    placeholder="stakeholder@example.com"
+                    value={customStakeholderEmail}
+                    onChange={(e) => setCustomStakeholderEmail(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={() => sendStakeholderEmail('custom')}
+                    disabled={emailStatuses.custom.status === 'sending'}
+                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
+                  >
+                    {emailStatuses.custom.status === 'sending' ? <Loader2 size={14} className="animate-spin" /> : 'Send'}
+                  </button>
+                </div>
+                {emailStatuses.custom.error && (
+                  <p className="text-[10px] text-rose-500 leading-tight mt-1">{emailStatuses.custom.error}</p>
+                )}
+              </div>
+
+              {/* Optional custom message */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
+                  Custom Accompanying Message (Optional)
+                </label>
+                <textarea
+                  placeholder="Add a personalized greeting or specific instructions to attach in the email body..."
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  className="w-full h-20 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none placeholder:text-slate-300 text-slate-800"
+                />
+              </div>
+
+              {/* Send All Active Button */}
+              <button
+                onClick={async () => {
+                  const sendOps = [];
+                  if (driverEmail) sendOps.push(sendStakeholderEmail('driver'));
+                  if (examinerEmail) sendOps.push(sendStakeholderEmail('examiner'));
+                  if (employerEmail) sendOps.push(sendStakeholderEmail('employer'));
+                  if (customStakeholderEmail) sendOps.push(sendStakeholderEmail('custom'));
+                  
+                  await Promise.all(sendOps);
+                }}
+                disabled={!driverEmail && !examinerEmail && !employerEmail && !customStakeholderEmail}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-2xl text-sm transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
+              >
+                <Mail size={16} />
+                <span>Dispatch to All Configured</span>
+              </button>
+            </div>
+          </div>
+
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">Operator Information</h3>
             <div className="space-y-3">

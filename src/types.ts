@@ -29,7 +29,7 @@ export interface ComplianceReport {
   metrics: ComplianceMetrics;
   status: 'Compliant' | 'Non-Compliant';
   createdAt: string;
-  expiresAt: string;
+  expiresAt?: string;
   pdfUrl?: string;
 }
 

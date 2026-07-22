@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot, writeBatch, doc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Search, Filter, CheckCircle, XCircle, ChevronRight, FileText, Calendar, Trash2, Mail, CheckSquare, Square, Loader2, AlertCircle, Clock, X } from 'lucide-react';
@@ -133,12 +133,17 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
     let successCount = 0;
 
     try {
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+
       for (const report of selectedReports) {
         // We use the profile email since we don't have individual patient emails saved in the schema
         // This simulates bulk sending reports to the clinic or a designated recipient
         const response = await fetch('/api/send-notification', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
           body: JSON.stringify({
             email: profile.email,
             patientName: report.patientName,

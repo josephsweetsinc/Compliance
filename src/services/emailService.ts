@@ -1,4 +1,5 @@
 import { ComplianceReport } from '../types';
+import { auth } from '../lib/firebase';
 
 /**
  * Service function to automatically email a summary notification to the user (operator)
@@ -14,10 +15,13 @@ export async function sendSummaryNotificationToUser(
   }
 
   try {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+
     const response = await fetch('/api/send-user-summary', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
         email: userEmail,

@@ -125,7 +125,7 @@ export async function extractTextFromPdf(file: File): Promise<PdfExtractionResul
   };
 }
 
-export function generateCompliancePdf(report: ComplianceReport, clinicName: string) {
+export function generateCompliancePdf(report: ComplianceReport, clinicName: string, shouldSave: boolean = true): jsPDF {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -494,7 +494,7 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   doc.text(`Verification Date: ${formatDate(new Date())}`, 131, sigY + 17);
   doc.text(`Digital Seal Signature Signed Locally`, 131, sigY + 21);
 
-  // 9. SECURITY EPHEMERAL COMPLIANCE FOOTER
+  // 9. SECURITY & CONFIDENTIALITY FOOTER
   const footerY = 244;
   doc.setFillColor(colorBgMuted.r, colorBgMuted.g, colorBgMuted.b);
   doc.setDrawColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
@@ -504,14 +504,14 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.setTextColor(colorDanger.r, colorDanger.g, colorDanger.b);
-  doc.text('⚠️ ZERO-TRUST EPHEMERAL PURGE WARNING (15 MIN EXPIRE)', 24, footerY + 1);
+  doc.setTextColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
+  doc.text('🔒 OFFICIAL CONFIDENTIAL MEDICAL & COMPLIANCE RECORD', 24, footerY + 1);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(colorSecondary.r, colorSecondary.g, colorSecondary.b);
   const privacyDisclaimer = 
-    "To guarantee maximum confidentiality and protect medical data, this compliance assessor deletes all processed files 15 minutes after upload. This PDF represents the permanent, non-recoverable certifier of this session. Please save this file to your local computer or secure health record repository immediately.";
+    "This certified compliance document contains driver health and CPAP therapy metrics intended strictly for official FMCSA / DOT physical examination verification. Store and transmit this document according to HIPAA and organizational privacy guidelines.";
   
   const splitDisclaimer = doc.splitTextToSize(privacyDisclaimer, 162);
   doc.text(splitDisclaimer, 24, footerY + 5);
@@ -522,5 +522,8 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   doc.text('Commercial Transport CPAP Assessment Verification Portal. Powered by Secure Endpoint Analytics.', 105, 274, { align: 'center' });
 
   // 10. TRIGGER SAVE DOWNLOAD
-  doc.save(`DOT_Compliance_Letter_${report.patientName.replace(/\s+/g, '_')}.pdf`);
+  if (shouldSave) {
+    doc.save(`DOT_Compliance_Letter_${report.patientName.replace(/\s+/g, '_')}.pdf`);
+  }
+  return doc;
 }

@@ -54,7 +54,7 @@ export default function LoginPage() {
 
         <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800/60 text-center">
           <p className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold mb-2">Privacy & Security Gate</p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed font-sans">Your CPAP report is analysed temporarily and deleted in 15 minutes for security.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed font-sans">Your CPAP compliance reports are processed securely using encrypted HIPAA-compliant data practices.</p>
         </div>
       </div>
     </div>

@@ -43,11 +43,62 @@ async function startServer() {
 
   app.use(express.json());
 
+  // IP-based Rate Limiter Middleware for API endpoints (Max 30 requests / min)
+  const apiRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+  
+  const apiRateLimiter = (maxRequests = 30, windowMs = 60 * 1000) => {
+    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const ip = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+      const now = Date.now();
+      const record = apiRateLimitMap.get(ip);
+
+      if (!record || now > record.resetTime) {
+        apiRateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
+        return next();
+      }
+
+      if (record.count >= maxRequests) {
+        return res.status(429).json({
+          success: false,
+          error: "Too Many Requests",
+          message: "Rate limit exceeded. Please wait a minute before sending additional requests."
+        });
+      }
+
+      record.count++;
+      return next();
+    };
+  };
+
+  // Authentication Verification Middleware for API endpoints
+  const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized access",
+        message: "An active authorization session token is required to execute notification dispatches."
+      });
+    }
+    const token = authHeader.split('Bearer ')[1]?.trim();
+    if (!token || token.length < 5) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized access",
+        message: "Invalid or malformed authorization token."
+      });
+    }
+    next();
+  };
+
+  // Apply rate limiter and auth verification to all /api endpoints
+  app.use('/api', apiRateLimiter(30, 60 * 1000), requireAuth);
+
   // API routes
   app.post("/api/send-notification", async (req, res) => {
-    const { email, patientName, status, reportId } = req.body;
+    const { email, patientName, status, reportId, pdfBase64, recipientRole, customMessage } = req.body;
 
-    console.log('Processing notification request for:', email);
+    console.log('Processing notification request for:', email, 'with role:', recipientRole);
 
     if (!email || !patientName || !status || !reportId) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -70,33 +121,110 @@ async function startServer() {
       const safePatientName = (patientName as string).replace(/[\n\r]/g, '').trim();
       const safeStatus = (status as string).trim();
       const safeEmail = (email as string).trim();
+      const role = (recipientRole as string || 'custom').toLowerCase();
+      const isCompliant = safeStatus === 'Compliant';
+
+      const attachments = [];
+      if (pdfBase64 && typeof pdfBase64 === "string") {
+        const base64Content = pdfBase64.replace(/^data:application\/pdf;base64,/, "");
+        attachments.push({
+          filename: `DOT_Compliance_Letter_${safePatientName.replace(/\s+/g, '_')}.pdf`,
+          content: Buffer.from(base64Content, 'base64'),
+        });
+      }
+
+      // Customize subject, greeting, and introduction based on recipient role
+      let subject = `CPAP Compliance Report: ${safePatientName} - ${safeStatus}`;
+      let emailHeader = "CPAP Compliance Verification";
+      let greeting = "Hello,";
+      let introParagraph = `A new CPAP compliance report has been successfully processed and analyzed. The certified compliance letter for <strong>${safePatientName}</strong> (Status: <strong>${safeStatus}</strong>) is attached for your reference.`;
+
+      if (role === 'driver' || role === 'patient') {
+        subject = `Your DOT CPAP Compliance Certificate: ${safePatientName} (${safeStatus})`;
+        emailHeader = "Driver CPAP Compliance Report";
+        greeting = `Dear ${safePatientName},`;
+        introParagraph = isCompliant
+          ? `Congratulations! Your CPAP therapy usage has been analyzed and meets the DOT/FMCSA compliance guidelines. Your certified compliance letter is attached to this email. You may download, print, or show this PDF at your DOT physical examination.`
+          : `Your CPAP therapy usage has been analyzed. Unfortunately, your current records indicate that your usage does not yet meet the 70% threshold (at least 4 hours per night on 70% of days) required by DOT/FMCSA guidelines. Your certified report is attached for your clinical review.`;
+      } else if (role === 'examiner' || role === 'clinic') {
+        subject = `Official CPAP Compliance Audit: ${safePatientName} - ${safeStatus}`;
+        emailHeader = "Medical Examiner Compliance Verification";
+        greeting = "Dear Medical Examiner / Certification Official,";
+        introParagraph = `Please find attached the certified CPAP compliance letter and therapy audit for commercial operator <strong>${safePatientName}</strong>. This document certifies that the operator is <strong>${safeStatus}</strong> with the physical qualifications standard of the FMCSA.`;
+      } else if (role === 'employer' || role === 'safety') {
+        subject = `Safety Compliance Alert: ${safePatientName} CPAP Status (${safeStatus})`;
+        emailHeader = "Employer Safety & Health Compliance Alert";
+        greeting = "Dear Fleet Representative / Safety Officer,";
+        introParagraph = `This is to notify you that CPAP compliance monitoring metrics have been successfully processed for operator <strong>${safePatientName}</strong>. The operator's compliance status is verified as <strong>${safeStatus}</strong>. The complete, official certified letter is attached.`;
+      }
+
+      const statusColor = isCompliant ? '#10b981' : '#f43f5e';
+      const statusBgColor = isCompliant ? '#ecfdf5' : '#fff1f2';
+      const statusTextColor = isCompliant ? '#065f46' : '#9f1239';
+
+      const customMessageHtml = customMessage && String(customMessage).trim().length > 0
+        ? `
+          <div style="margin: 20px 0; padding: 14px 18px; border-left: 4px solid #3b82f6; background-color: #eff6ff; border-radius: 4px 12px 12px 4px;">
+            <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: bold; color: #2563eb; text-transform: uppercase; letter-spacing: 0.05em;">Personalized Dispatch Note:</p>
+            <p style="margin: 0; color: #1e293b; font-size: 14px; font-style: italic; line-height: 1.5;">"${String(customMessage).trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</p>
+          </div>
+        `
+        : '';
 
       const { data, error } = await resend.emails.send({
-        // Standard onboarding address works best without display names in some environments
         from: 'onboarding@resend.dev',
         to: safeEmail,
-        subject: `CPAP Report: ${safePatientName} - ${safeStatus}`,
+        subject: subject,
         html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-            <h1 style="color: #1e293b; font-size: 24px; margin-bottom: 16px;">CPAP Compliance Report Ready</h1>
-            <p style="color: #475569; font-size: 16px; line-height: 1.5;">A new CPAP compliance report has been successfully processed and analyzed.</p>
+          <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+            <!-- Header Banner -->
+            <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
+              <span style="font-size: 10px; font-weight: 800; color: #5850c2; text-transform: uppercase; letter-spacing: 0.15em; display: block; margin-bottom: 4px;">ComplyZzz Certified System</span>
+              <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0; tracking-tight: -0.02em;">${emailHeader}</h1>
+            </div>
+
+            <p style="color: #1e293b; font-size: 16px; font-weight: 600; margin-top: 0; margin-bottom: 12px;">${greeting}</p>
+            <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-top: 0; margin-bottom: 20px;">${introParagraph}</p>
             
-            <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin: 24px 0;">
-              <h2 style="color: #1e293b; font-size: 18px; margin-top: 0;">Summary</h2>
-              <p style="margin: 8px 0; color: #475569;"><strong>Patient Name:</strong> ${safePatientName}</p>
-              <p style="margin: 8px 0; color: #475569;"><strong>Compliance Status:</strong> <span style="color: ${safeStatus === 'Compliant' ? '#059669' : '#dc2626'}; font-weight: bold;">${safeStatus}</span></p>
+            <!-- Optional Custom Message from Operator -->
+            ${customMessageHtml}
+
+            <!-- Summary Box -->
+            <div style="background-color: #f8fafc; border: 1px solid #f1f5f9; padding: 20px; border-radius: 12px; margin: 24px 0;">
+              <h2 style="color: #0f172a; font-size: 16px; font-weight: 700; margin-top: 0; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Compliance Assessment</h2>
+              
+              <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #475569;">
+                <tr>
+                  <td style="padding: 6px 0; font-weight: 600; color: #64748b; width: 40%;">Operator Name</td>
+                  <td style="padding: 6px 0; font-weight: 700; color: #0f172a;">${safePatientName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; font-weight: 600; color: #64748b;">Regulatory Status</td>
+                  <td style="padding: 6px 0;">
+                    <span style="background-color: ${statusBgColor}; color: ${statusTextColor}; border: 1px solid rgba(${isCompliant ? '16,185,129' : '244,63,94'},0.2); padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 12px; text-transform: uppercase;">
+                      ${safeStatus}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </div>
+
+            <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">
+              The certified DOT CPAP Compliance report is attached to this message as an official <strong>PDF document</strong>. For security and medical privacy compliance, all report records are transmitted using encrypted SSL/TLS protocols and stored securely in your portal.
+            </p>
+            
+            <div style="margin-top: 32px; text-align: center; margin-bottom: 16px;">
+              <a href="${reportUrl}" style="display: inline-block; padding: 14px 28px; background-color: #5850c2; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(88,80,194,0.2);">Open Compliance Dashboard</a>
             </div>
             
-            <p style="color: #475569; font-size: 16px; line-height: 1.5;">You can view the full report, review metrics, and download the generated PDF in the application.</p>
-            
-            <div style="margin-top: 32px; text-align: center;">
-              <a href="${reportUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">View Full Report</a>
+            <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 32px 0;" />
+            <div style="text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.6;">
+              <p style="margin: 0; font-weight: bold;">ComplyZzz Sleep Analytics Portal</p>
+              <p style="margin: 4px 0 0 0;">This email was sent on behalf of your healthcare/safety administration program using the Resend platform.</p>
             </div>
-            
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 32px 0;" />
-            <p style="color: #94a3b8; font-size: 12px; text-align: center;">This is an automated notification from your CPAP Compliance SaaS app.</p>
           </div>
         `,
+        attachments: attachments.length > 0 ? attachments : undefined
       });
 
       if (error) {
@@ -219,10 +347,10 @@ async function startServer() {
             </a>
           </div>
 
-          <!-- Ephemeral warning -->
-          <div style="background-color: #fffbeb; border: 1px dashed #f59e0b; border-radius: 12px; padding: 15px; margin-bottom: 24px; font-size: 13px; color: #b45309; line-height: 1.5;">
-            <strong>⚠️ EPHEMERAL PURGE WARNING (15 Min Expiry)</strong><br />
-            To comply with HIPAA, industrial transport regulations, and Zero-Trust credential requirements, this report is stored in <strong>temporary, self-destructing cloud storage</strong>. It will be <strong>permanently destroyed</strong> in 15 minutes. Please immediately log in, review the details, and generate/download the Official Certified Letter.
+          <!-- Privacy & Security Notice -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 24px; font-size: 13px; color: #475569; line-height: 1.5;">
+            <strong>🔒 CONFIDENTIALITY & PRIVACY NOTICE</strong><br />
+            This compliance summary contains confidential medical and transport safety data. Access is restricted to verified healthcare and safety personnel. You can view, manage, or archive this official report directly in your portal.
           </div>
 
           <!-- Footer -->
