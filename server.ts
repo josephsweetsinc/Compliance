@@ -39,7 +39,7 @@ function getTwilio() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -81,12 +81,24 @@ async function startServer() {
       });
     }
     const token = authHeader.split('Bearer ')[1]?.trim();
-    if (!token || token.length < 5) {
-      return res.status(401).json({
-        success: false,
-        error: "Unauthorized access",
-        message: "Invalid or malformed authorization token."
-      });
+    const internalApiKey = process.env.INTERNAL_API_KEY?.trim();
+
+    if (internalApiKey) {
+      if (token !== internalApiKey) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "Invalid authorization token provided."
+        });
+      }
+    } else {
+      if (!token || token.length < 5) {
+        return res.status(401).json({
+          success: false,
+          error: "Unauthorized access",
+          message: "Invalid or malformed authorization token."
+        });
+      }
     }
     next();
   };
@@ -171,8 +183,10 @@ async function startServer() {
         `
         : '';
 
+      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
+
       const { data, error } = await resend.emails.send({
-        from: 'onboarding@resend.dev',
+        from: fromEmail,
         to: safeEmail,
         subject: subject,
         html: `
@@ -361,8 +375,10 @@ async function startServer() {
         </div>
       `;
 
+      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
+
       const { data, error } = await resend.emails.send({
-        from: 'onboarding@resend.dev',
+        from: fromEmail,
         to: safeEmail,
         subject: `[CPAP Portal] Processed: ${patientName} (${status})`,
         html: htmlContent,
