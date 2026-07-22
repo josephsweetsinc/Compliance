@@ -126,11 +126,14 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const pdfDoc = generateCompliancePdf(report, profile.clinicName, false);
       const pdfBase64 = pdfDoc.output('datauristring');
 
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+      if (!auth.currentUser) {
+        throw new Error('You must be signed in to send this email.');
+      }
+      const token = await auth.currentUser.getIdToken();
 
       const response = await fetch('/api/send-notification', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -209,9 +212,17 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const pdfDoc = generateCompliancePdf(report, profile.clinicName, false);
       const pdfBase64 = pdfDoc.output('datauristring');
 
+      if (!auth.currentUser) {
+        throw new Error('You must be signed in to send this email.');
+      }
+      const token = await auth.currentUser.getIdToken();
+
       const response = await fetch('/api/send-notification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           email: recipientEmail,
           patientName: report.patientName,

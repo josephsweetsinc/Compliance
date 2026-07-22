@@ -133,7 +133,10 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
     let successCount = 0;
 
     try {
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+      if (!auth.currentUser) {
+        throw new Error('You must be signed in to send emails.');
+      }
+      const token = await auth.currentUser.getIdToken();
 
       for (const report of selectedReports) {
         // We use the profile email since we don't have individual patient emails saved in the schema

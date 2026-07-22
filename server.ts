@@ -1,18 +1,41 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { Resend } from 'resend';
 import twilio from 'twilio';
 import dotenv from 'dotenv';
+import admin from 'firebase-admin';
+import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const firebaseConfig = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf-8')
+);
+
+if (!admin.apps.length) {
+  admin.initializeApp({ projectId: firebaseConfig.projectId });
+}
+
 let resendClient: Resend | null = null;
 let twilioClient: any = null;
+let genAIClient: GoogleGenAI | null = null;
+
+function getGenAI() {
+  if (!genAIClient) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is missing.');
+    }
+    genAIClient = new GoogleGenAI({ apiKey });
+  }
+  return genAIClient;
+}
 
 function getResend() {
   if (!resendClient) {
@@ -70,8 +93,10 @@ async function startServer() {
     };
   };
 
-  // Authentication Verification Middleware for API endpoints
-  const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // Authentication Verification Middleware for API endpoints.
+  // Verifies the Firebase ID token's signature, issuer, audience and expiry
+  // via firebase-admin rather than just checking that a header is present.
+  const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
@@ -81,14 +106,32 @@ async function startServer() {
       });
     }
     const token = authHeader.split('Bearer ')[1]?.trim();
-    if (!token || token.length < 5) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         error: "Unauthorized access",
         message: "Invalid or malformed authorization token."
       });
     }
-    next();
+    try {
+      const decoded = await admin.auth().verifyIdToken(token);
+      if (!decoded.email_verified) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "Email verification is required to perform this action."
+        });
+      }
+      (req as any).authUser = decoded;
+      next();
+    } catch (err: any) {
+      console.error('Token verification failed:', err.message);
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized access",
+        message: "Invalid or expired authorization token."
+      });
+    }
   };
 
   // Apply rate limiter and auth verification to all /api endpoints
@@ -430,6 +473,123 @@ async function startServer() {
         error: 'Failed to send SMS notification.',
         message: err.message 
       });
+    }
+  });
+
+  app.post("/api/extract-metrics", async (req, res) => {
+    const { text } = req.body;
+
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return res.status(400).json({ success: false, error: "Missing or empty 'text' field" });
+    }
+
+    try {
+      const ai = getGenAI();
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `You are a medical data extraction engine.
+
+Extract CPAP compliance metrics from the document.
+
+Rules:
+
+* Return ONLY valid JSON
+* Do NOT explain anything
+* Do NOT guess values
+* If a value is missing, return null
+* Numbers must be numeric (no % signs)
+
+Extract:
+
+patient_name
+device_type
+report_start_date
+report_end_date
+total_days
+days_used_4_plus_hours
+usage_days_percent
+average_usage_hours
+ahi
+
+Important:
+
+* usage_days_percent = % of days with ≥4 hours usage
+* average_usage_hours = average nightly usage
+* ahi = apnea-hypopnea index
+
+Return format:
+
+{
+"patient_name": "",
+"device_type": "",
+"report_start_date": "",
+"report_end_date": "",
+"total_days": 0,
+"days_used_4_plus_hours": 0,
+"usage_days_percent": 0,
+"average_usage_hours": 0,
+"ahi": 0
+}
+
+Document Text:
+${text}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              patient_name: { type: Type.STRING },
+              device_type: { type: Type.STRING },
+              report_start_date: { type: Type.STRING },
+              report_end_date: { type: Type.STRING },
+              total_days: { type: Type.INTEGER },
+              days_used_4_plus_hours: { type: Type.INTEGER },
+              usage_days_percent: { type: Type.NUMBER },
+              average_usage_hours: { type: Type.NUMBER },
+              ahi: { type: Type.NUMBER },
+            },
+            required: [
+              "patient_name",
+              "device_type",
+              "report_start_date",
+              "report_end_date",
+              "total_days",
+              "days_used_4_plus_hours",
+              "usage_days_percent",
+              "average_usage_hours",
+              "ahi",
+            ],
+          },
+        },
+      });
+
+      const jsonStr = response.text?.trim();
+      if (!jsonStr) {
+        return res.status(502).json({ success: false, error: "The AI returned an empty response. Please try uploading the report again." });
+      }
+
+      let metrics: any;
+      try {
+        metrics = JSON.parse(jsonStr);
+      } catch {
+        return res.status(502).json({ success: false, error: "Failed to parse the CPAP data. The report format might be unsupported or the file might be corrupted." });
+      }
+
+      res.json({ success: true, metrics });
+    } catch (error: any) {
+      console.error("Extraction error:", error);
+
+      if (error.message?.includes("GEMINI_API_KEY")) {
+        return res.status(500).json({ success: false, error: "The Gemini API key is missing or invalid on the server." });
+      }
+      if (error.message?.includes("API_KEY_INVALID") || error.message?.includes("API key")) {
+        return res.status(500).json({ success: false, error: "The Gemini API key is missing or invalid. Please check your application settings." });
+      }
+      if (error.message?.includes("quota") || error.message?.includes("429")) {
+        return res.status(429).json({ success: false, error: "The analysis service is currently busy. Please wait a moment and try again." });
+      }
+
+      res.status(500).json({ success: false, error: `Failed to analyze the CPAP report: ${error.message || "Unknown error"}` });
     }
   });
 

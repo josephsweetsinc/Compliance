@@ -15,7 +15,10 @@ export async function sendSummaryNotificationToUser(
   }
 
   try {
-    const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+    if (!auth.currentUser) {
+      return { success: false, error: 'You must be signed in to send this email.' };
+    }
+    const token = await auth.currentUser.getIdToken();
 
     const response = await fetch('/api/send-user-summary', {
       method: 'POST',
