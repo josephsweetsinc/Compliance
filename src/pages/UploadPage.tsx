@@ -6,7 +6,7 @@ import { UserProfile, ComplianceMetrics, ComplianceReport } from '../types';
 import { extractTextFromPdf } from '../services/pdfService';
 import { extractComplianceMetrics } from '../services/geminiService';
 import { sendSummaryNotificationToUser } from '../services/emailService';
-import { FileUp, Loader2, AlertCircle, CheckCircle2, FileText, X, User, Mail, Activity, Phone } from 'lucide-react';
+import { FileUp, Loader2, AlertCircle, CheckCircle2, FileText, X, User, Mail, Activity, Phone, Sparkles } from 'lucide-react';
 
 export default function UploadPage({ profile }: { profile: UserProfile }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -37,6 +37,8 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
     phoneNumber: ''
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter = useRef(0);
+  const [isDragging, setIsDragging] = useState(false);
   const navigate = useNavigate();
 
   const handleDetailChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -52,12 +54,11 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
     }));
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []) as File[];
-    const pdfFiles = selectedFiles.filter(f => f.type === 'application/pdf');
+  const addPdfFiles = (selectedFiles: File[]) => {
+    const pdfFiles = selectedFiles.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     
     if (pdfFiles.length === 0 && selectedFiles.length > 0) {
-      setError('Please select valid PDF files.');
+      setError('Please select or drop valid PDF files.');
       return;
     }
 
@@ -73,6 +74,47 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
     });
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []) as File[];
+    addPdfFiles(selectedFiles);
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      setIsDragging(false);
+      dragCounter.current = 0;
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFiles = Array.from(e.dataTransfer.files) as File[];
+      addPdfFiles(droppedFiles);
+    }
   };
 
   const removeFile = (index: number) => {
@@ -449,18 +491,47 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
           {files.length === 0 ? (
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-200 rounded-2xl p-12 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all group"
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-2xl p-10 sm:p-12 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-50/90 ring-4 ring-blue-100 scale-[1.01] shadow-lg'
+                  : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/50'
+              }`}
             >
-              <div className="p-4 bg-blue-50 group-hover:bg-blue-100 rounded-full mb-4 transition-colors">
-                <FileUp className="text-blue-600" size={32} />
+              <div className={`p-4 rounded-full mb-4 transition-all duration-300 ${
+                isDragging 
+                  ? 'bg-blue-600 text-white scale-110 shadow-lg animate-bounce' 
+                  : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100 group-hover:scale-105'
+              }`}>
+                <FileUp size={32} />
               </div>
-              <p className="text-lg font-bold text-slate-800 mb-1">Click or drag PDFs here</p>
-              <p className="text-slate-500 text-sm mb-3">You can select up to 10 reports for bulk processing</p>
-              <p className="text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg font-medium shadow-2xs select-none">
+
+              <p className={`text-lg font-bold mb-1 transition-colors ${
+                isDragging ? 'text-blue-700' : 'text-slate-800'
+              }`}>
+                {isDragging ? 'Drop CPAP PDF reports here' : 'Click or drag CPAP PDFs here'}
+              </p>
+
+              <p className="text-slate-500 text-sm mb-3 text-center max-w-sm">
+                {isDragging ? 'Release to add CPAP machine reports to queue' : 'Select or drop up to 10 CPAP machine reports for bulk analysis'}
+              </p>
+
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-100/80 border border-blue-200 px-2.5 py-1 rounded-md">
+                  <Sparkles size={12} />
+                  ResMed AirView & Care Orchestrator Compatible
+                </span>
+              </div>
+
+              <p className="mt-4 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg font-medium shadow-2xs select-none">
                 <span className="text-slate-600">🔒 Your data is secure and not shared</span>
                 <span className="text-slate-300 hidden sm:inline">•</span>
                 <span className="text-slate-600">Files are automatically deleted after processing</span>
               </p>
+
               <input
                 type="file"
                 ref={fileInputRef}
@@ -471,7 +542,39 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
               />
             </div>
           ) : (
-            <div className="space-y-6">
+            <div 
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              className={`space-y-6 transition-all rounded-2xl p-3 ${
+                isDragging ? 'border-2 border-dashed border-blue-500 bg-blue-50/80 ring-4 ring-blue-100 shadow-md' : ''
+              }`}
+            >
+              {isDragging && (
+                <div className="p-3.5 bg-blue-600 text-white rounded-xl text-center font-bold text-sm flex items-center justify-center gap-2 animate-bounce shadow-md">
+                  <FileUp size={20} />
+                  <span>Drop CPAP PDFs here to add to queue</span>
+                </div>
+              )}
+
+              {/* Ready Status Bar */}
+              {!loading && !isDragging && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-xl animate-in fade-in duration-300">
+                  <div className="flex items-center gap-2.5 text-emerald-900 font-semibold text-xs">
+                    <span className="flex h-2.5 w-2.5 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
+                    </span>
+                    <span>{files.length} CPAP {files.length === 1 ? 'file' : 'files'} ready for processing</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200">
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    Ready for Compliance Extraction
+                  </span>
+                </div>
+              )}
+
               <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
                 {files.map((f, i) => (
                   <div key={i} className={`flex flex-col p-3 rounded-xl border transition-all ${
@@ -494,7 +597,8 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
                         <div className="min-w-0">
                           <p className="font-bold text-slate-800 truncate text-sm">{f.name}</p>
                           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                            <span className="text-[10px] text-slate-500">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                            <span className="text-[10px] text-slate-500 font-mono">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">Ready</span>
                             {fileResults[i]?.manufacturer && (
                               <>
                                 <span className="text-[10px] text-slate-300">•</span>
@@ -510,7 +614,7 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
                       
                       <div className="flex items-center gap-2">
                         {!loading && (
-                          <button onClick={() => removeFile(i)} className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors">
+                          <button onClick={() => removeFile(i)} className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors" title="Remove file">
                             <X size={16} />
                           </button>
                         )}
