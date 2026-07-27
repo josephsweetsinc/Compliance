@@ -37,6 +37,70 @@ function getTwilio() {
   return twilioClient;
 }
 
+async function sendResendEmail(resend: any, params: {
+  fromEmail: string;
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: any[];
+}) {
+  const { fromEmail, to, subject, html, attachments } = params;
+
+  let formattedFrom = fromEmail;
+  if (!formattedFrom.includes('<')) {
+    formattedFrom = `ComplyZzz Compliance <${formattedFrom}>`;
+  }
+
+  console.log(`Sending Resend email from '${formattedFrom}' to '${to}'...`);
+
+  let result = await resend.emails.send({
+    from: formattedFrom,
+    to: to,
+    subject: subject,
+    html: html,
+    attachments: attachments && attachments.length > 0 ? attachments : undefined
+  });
+
+  if (result.error && !formattedFrom.includes('onboarding@resend.dev')) {
+    const errObj = result.error;
+    const errMsg = (errObj.message || '').toLowerCase();
+    const isDomainOrValidation = errObj.name === 'validation_error' || errMsg.includes('domain') || errMsg.includes('not verified');
+
+    if (isDomainOrValidation) {
+      console.warn(`[Resend Warning] Custom sender '${formattedFrom}' failed validation (${errObj.message}). Retrying with sandbox sender 'ComplyZzz <onboarding@resend.dev>'...`);
+      
+      const fallbackResult = await resend.emails.send({
+        from: 'ComplyZzz <onboarding@resend.dev>',
+        to: to,
+        subject: subject,
+        html: html,
+        attachments: attachments && attachments.length > 0 ? attachments : undefined
+      });
+
+      if (!fallbackResult.error) {
+        console.log(`[Resend Success] Email sent via sandbox fallback sender 'onboarding@resend.dev' to ${to}`);
+        return { data: fallbackResult.data, error: null };
+      }
+      result = fallbackResult;
+    }
+  }
+
+  if (result.error) {
+    const errObj = result.error;
+    let friendlyMessage = errObj.message || errObj.name || 'Resend API Validation Error';
+
+    if (friendlyMessage.includes('testing emails to your own email address')) {
+      friendlyMessage = `Resend Sandbox Restriction: When sending from 'onboarding@resend.dev', Resend only allows sending to your registered account owner address (${to}). To send to external recipients, please complete domain DNS verification for 'complyzzz.com' in your Resend dashboard.`;
+    } else if (friendlyMessage.includes('not verified') || friendlyMessage.includes('domain')) {
+      friendlyMessage = `Domain Verification Required: The domain in '${fromEmail}' is not yet verified in your Resend account. Please finish adding DNS records in Resend dashboard or use onboarding@resend.dev.`;
+    }
+
+    return { data: null, error: { ...errObj, message: friendlyMessage } };
+  }
+
+  return { data: result.data, error: null };
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -185,11 +249,7 @@ async function startServer() {
 
       const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
 
-      const { data, error } = await resend.emails.send({
-        from: fromEmail,
-        to: safeEmail,
-        subject: subject,
-        html: `
+      const emailHtml = `
           <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
             <!-- Header Banner -->
             <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
@@ -237,16 +297,22 @@ async function startServer() {
               <p style="margin: 4px 0 0 0;">This email was sent on behalf of your healthcare/safety administration program using the Resend platform.</p>
             </div>
           </div>
-        `,
-        attachments: attachments.length > 0 ? attachments : undefined
+      `;
+
+      const { data, error } = await sendResendEmail(resend, {
+        fromEmail,
+        to: safeEmail,
+        subject,
+        html: emailHtml,
+        attachments
       });
 
       if (error) {
         console.error('Resend API Detailed Error:', JSON.stringify(error, null, 2));
         return res.status(500).json({ 
           success: false, 
-          error: 'Failed to send email via Resend.',
-          details: error.message || error.name || 'Validation Error'
+          error: error.message || 'Failed to send email via Resend.',
+          details: error.message || 'Validation Error'
         });
       }
 
@@ -377,8 +443,8 @@ async function startServer() {
 
       const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
 
-      const { data, error } = await resend.emails.send({
-        from: fromEmail,
+      const { data, error } = await sendResendEmail(resend, {
+        fromEmail,
         to: safeEmail,
         subject: `[CPAP Portal] Processed: ${patientName} (${status})`,
         html: htmlContent,
@@ -388,8 +454,8 @@ async function startServer() {
         console.error('Resend SDK user summary detailed error:', JSON.stringify(error, null, 2));
         return res.status(500).json({ 
           success: false, 
-          error: 'Failed to send automatic user summary email via Resend.',
-          details: error.message || error.name || 'Validation Error'
+          error: error.message || 'Failed to send automatic user summary email via Resend.',
+          details: error.message || 'Validation Error'
         });
       }
 
