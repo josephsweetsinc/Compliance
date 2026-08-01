@@ -308,8 +308,8 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <span className="text-sm font-bold text-slate-700">{report.metrics.compliance_percentage}%</span>
-                        <span className="text-xs text-slate-400">{report.metrics.average_usage_hours} hrs avg</span>
+                        <span className="text-sm font-bold text-slate-700">{report.metrics?.compliance_percentage ?? 0}%</span>
+                        <span className="text-xs text-slate-400">{report.metrics?.average_usage_hours ?? 0} hrs avg</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">

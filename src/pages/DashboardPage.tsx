@@ -84,19 +84,19 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
         <StatCard
           icon={<History className="text-blue-600" />}
           label="Recent Reports"
-          value={stats.total.toString()}
+          value={(stats.total ?? 0).toString()}
           bgColor="bg-blue-50"
         />
         <StatCard
           icon={<CheckCircle className="text-emerald-600" />}
           label="Compliant"
-          value={stats.compliant.toString()}
+          value={(stats.compliant ?? 0).toString()}
           bgColor="bg-emerald-50"
         />
         <StatCard
           icon={<XCircle className="text-rose-600" />}
           label="Non-Compliant"
-          value={stats.nonCompliant.toString()}
+          value={(stats.nonCompliant ?? 0).toString()}
           bgColor="bg-rose-50"
         />
       </div>
@@ -136,8 +136,8 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-right hidden sm:block">
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{report.metrics.compliance_percentage}% Compliance</p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500">{report.metrics.average_usage_hours} hrs avg usage</p>
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{report.metrics?.compliance_percentage ?? 0}% Compliance</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{report.metrics?.average_usage_hours ?? 0} hrs avg usage</p>
                     </div>
                     <ChevronRight size={20} className="text-slate-300 dark:text-slate-600" />
                   </div>

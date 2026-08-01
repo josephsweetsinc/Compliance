@@ -343,6 +343,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
                 {emailErrorDetails.toLowerCase().includes('api key') || 
                  emailErrorDetails.toLowerCase().includes('invalid') ||
+                 emailErrorDetails.toLowerCase().includes('unauthorized') ||
                  emailErrorDetails.toLowerCase().includes('missing') ? (
                   <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
                     <span className="font-bold block text-sm mb-1 text-rose-800">🔑 Resend API Key Configuration Guide:</span>
@@ -413,7 +414,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
           <div className="mb-8 leading-relaxed">
             <p>
               This letter serves to certify the CPAP compliance status for the individual identified below. 
-              Our automated analysis of the provided usage data for the period of <strong>{report.metrics.report_start_date}</strong> to <strong>{report.metrics.report_end_date}</strong> has been completed.
+              Our automated analysis of the provided usage data for the period of <strong>{report.metrics?.report_start_date ?? 'N/A'}</strong> to <strong>{report.metrics?.report_end_date ?? 'N/A'}</strong> has been completed.
             </p>
           </div>
 
@@ -423,18 +424,18 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
               <p>Name: {report.patientName}</p>
               {report.dob && <p>Date of Birth: {report.dob}</p>}
               {report.licenseNumber && <p>License: {report.licenseNumber} ({report.licenseState || 'N/A'})</p>}
-              {report.metrics.device_type && <p>Device: {report.metrics.device_type}</p>}
+              {report.metrics?.device_type && <p>Device: {report.metrics.device_type}</p>}
             </div>
           </div>
 
           <div className="mb-8">
             <p className="font-bold mb-2 underline">COMPLIANCE SUMMARY:</p>
             <div className="pl-4 space-y-1">
-              <p>Total Days Monitored: {report.metrics.total_days}</p>
-              <p>Days Used &gt; 4 Hours: {report.metrics.days_used_4_plus_hours}</p>
-              <p>Usage Days Percentage: {report.metrics.usage_days_percent}% (Threshold: 70%)</p>
-              <p>Average Usage: {report.metrics.average_usage_hours} hours/night (Threshold: 4.0 hrs)</p>
-              <p>AHI (Apnea-Hypopnea Index): {report.metrics.ahi}</p>
+              <p>Total Days Monitored: {report.metrics?.total_days ?? 0}</p>
+              <p>Days Used &gt; 4 Hours: {report.metrics?.days_used_4_plus_hours ?? 0}</p>
+              <p>Usage Days Percentage: {report.metrics?.usage_days_percent ?? 0}% (Threshold: 70%)</p>
+              <p>Average Usage: {report.metrics?.average_usage_hours ?? 0} hours/night (Threshold: 4.0 hrs)</p>
+              <p>AHI (Apnea-Hypopnea Index): {report.metrics?.ahi ?? 'N/A'}</p>
             </div>
           </div>
 
@@ -578,6 +579,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
                {emailErrorDetails.toLowerCase().includes('api key') || 
                 emailErrorDetails.toLowerCase().includes('invalid') ||
+                emailErrorDetails.toLowerCase().includes('unauthorized') ||
                 emailErrorDetails.toLowerCase().includes('missing') ? (
                  <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
                    <span className="font-bold block text-sm mb-1 text-rose-800">🔑 Resend API Key Configuration Guide:</span>
@@ -626,7 +628,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                       value={`${report.licenseNumber} (${report.licenseState || 'N/A'})`} 
                     />
                   )}
-                  <DetailItem icon={<Calendar size={18} />} label="Reporting Period" value={`${report.metrics.report_start_date} - ${report.metrics.report_end_date}`} />
+                  <DetailItem icon={<Calendar size={18} />} label="Reporting Period" value={`${report.metrics?.report_start_date ?? 'N/A'} - ${report.metrics?.report_end_date ?? 'N/A'}`} />
                   <DetailItem icon={<Clock size={18} />} label="Processed On" value={formatDate(report.createdAt)} />
                 </div>
               </div>
@@ -634,11 +636,11 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
               <div className="space-y-6">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Compliance Metrics</h3>
                 <div className="space-y-4">
-                  {report.metrics.device_type && <MetricItem label="Device Type" value={report.metrics.device_type} threshold="N/A" pass={true} />}
-                  <MetricItem label="Usage %" value={`${report.metrics.usage_days_percent}%`} threshold="≥ 70%" pass={report.metrics.usage_days_percent >= 70} />
-                  <MetricItem label="Avg Usage" value={`${report.metrics.average_usage_hours} hrs`} threshold="≥ 4.0 hrs" pass={report.metrics.average_usage_hours >= 4} />
-                  <MetricItem label="Total Days" value={report.metrics.total_days.toString()} threshold="≥ 30" pass={report.metrics.total_days >= 30} />
-                  <MetricItem label="AHI" value={report.metrics.ahi.toString()} threshold="N/A" pass={true} />
+                  {report.metrics?.device_type && <MetricItem label="Device Type" value={report.metrics.device_type} threshold="N/A" pass={true} />}
+                  <MetricItem label="Usage %" value={`${report.metrics?.usage_days_percent ?? 0}%`} threshold="≥ 70%" pass={(report.metrics?.usage_days_percent ?? 0) >= 70} />
+                  <MetricItem label="Avg Usage" value={`${report.metrics?.average_usage_hours ?? 0} hrs`} threshold="≥ 4.0 hrs" pass={(report.metrics?.average_usage_hours ?? 0) >= 4} />
+                  <MetricItem label="Total Days" value={(report.metrics?.total_days ?? 0).toString()} threshold="≥ 30" pass={(report.metrics?.total_days ?? 0) >= 30} />
+                  <MetricItem label="AHI" value={(report.metrics?.ahi ?? 'N/A').toString()} threshold="N/A" pass={true} />
                 </div>
               </div>
             </div>

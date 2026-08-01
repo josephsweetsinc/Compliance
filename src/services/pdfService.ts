@@ -344,39 +344,44 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   doc.text('MEASURED DRIVER DATA', colX.measured, 133);
   doc.text('VERIFICATION STATUS', colX.status, 133);
 
+  const totalDays = report.metrics?.total_days ?? 0;
+  const usageDaysPercent = report.metrics?.usage_days_percent ?? 0;
+  const avgUsageHours = report.metrics?.average_usage_hours ?? 0;
+  const ahiVal = report.metrics?.ahi ?? 0;
+
   // Rows Data
   const scorecardRows = [
     {
       label: 'Continuous Assessment Period',
       guideline: 'Minimum of 30 Nights Recommended',
-      measured: `${report.metrics.total_days} nights monitored`,
-      isPass: report.metrics.total_days >= 30,
-      customStatus: report.metrics.total_days >= 30 ? 'VALID DEPTH' : 'SHORT SAMPLE',
-      statusType: report.metrics.total_days >= 30 ? 'success' : 'warning'
+      measured: `${totalDays} nights monitored`,
+      isPass: totalDays >= 30,
+      customStatus: totalDays >= 30 ? 'VALID DEPTH' : 'SHORT SAMPLE',
+      statusType: totalDays >= 30 ? 'success' : 'warning'
     },
     {
       label: 'CPAP Usage Frequency Ratio',
       guideline: '>= 70% of days used >= 4 hours',
-      measured: `${report.metrics.usage_days_percent}% of compliance nights`,
-      isPass: report.metrics.usage_days_percent >= 70,
-      customStatus: report.metrics.usage_days_percent >= 70 ? 'COMPLIANT' : 'NON-COMPLIANT',
-      statusType: report.metrics.usage_days_percent >= 70 ? 'success' : 'danger'
+      measured: `${usageDaysPercent}% of compliance nights`,
+      isPass: usageDaysPercent >= 70,
+      customStatus: usageDaysPercent >= 70 ? 'COMPLIANT' : 'NON-COMPLIANT',
+      statusType: usageDaysPercent >= 70 ? 'success' : 'danger'
     },
     {
       label: 'Average Nightly Use duration',
       guideline: 'Average >= 4.0 Hours per Night',
-      measured: `${report.metrics.average_usage_hours} hours / night`,
-      isPass: report.metrics.average_usage_hours >= 4.0,
-      customStatus: report.metrics.average_usage_hours >= 4.0 ? 'COMPLIANT' : 'INSUFFICIENT',
-      statusType: report.metrics.average_usage_hours >= 4.0 ? 'success' : 'danger'
+      measured: `${avgUsageHours} hours / night`,
+      isPass: avgUsageHours >= 4.0,
+      customStatus: avgUsageHours >= 4.0 ? 'COMPLIANT' : 'INSUFFICIENT',
+      statusType: avgUsageHours >= 4.0 ? 'success' : 'danger'
     },
     {
       label: 'Residual Sleep Apnea Control',
       guideline: 'Optimal Index AHI < 5.0 / hr',
-      measured: `AHI: ${report.metrics.ahi} events / hour`,
-      isPass: report.metrics.ahi <= 5.0,
-      customStatus: report.metrics.ahi <= 5.0 ? 'OPTIMAL' : 'ELEVATED index',
-      statusType: report.metrics.ahi <= 5.0 ? 'success' : 'warning'
+      measured: `AHI: ${ahiVal} events / hour`,
+      isPass: ahiVal <= 5.0,
+      customStatus: ahiVal <= 5.0 ? 'OPTIMAL' : 'ELEVATED index',
+      statusType: ahiVal <= 5.0 ? 'success' : 'warning'
     }
   ];
 
