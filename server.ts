@@ -40,6 +40,45 @@ function getTwilio() {
   return twilioClient;
 }
 
+function getAppUrl(req?: express.Request): string {
+  let url = process.env.APP_URL?.trim();
+
+  // If APP_URL is not explicitly set or defaults to localhost in container, try resolving from request
+  if ((!url || url === 'http://localhost:3000' || url === 'https://localhost:3000') && req) {
+    const origin = (req.headers.origin || req.headers.referer) as string | undefined;
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        url = `${parsed.protocol}//${parsed.host}`;
+      } catch (e) {
+        // ignore invalid URL format
+      }
+    }
+    if (!url && req.get('host')) {
+      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+      url = `${proto}://${req.get('host')}`;
+    }
+  }
+
+  // Fallback domain default
+  if (!url) {
+    url = 'https://reports.complyzzz.com';
+  }
+
+  // Ensure subdomain reports.complyzzz.com is used if complyzzz.com is present without subdomain
+  if (url.includes('complyzzz.com') && !url.includes('reports.complyzzz.com')) {
+    url = url.replace('complyzzz.com', 'reports.complyzzz.com');
+  }
+
+  // Ensure protocol prefix
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+
+  // Strip trailing slashes
+  return url.replace(/\/+$/, '');
+}
+
 async function sendResendEmail(resend: any, params: {
   fromEmail: string;
   to: string;
@@ -199,9 +238,7 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid email address format" });
     }
 
-    // Use APP_URL from environment variable and handle trailing slashes
-    let appUrl = process.env.APP_URL || 'http://localhost:3000';
-    appUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+    const appUrl = getAppUrl(req);
 
     try {
       const resend = getResend();
@@ -358,9 +395,7 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid email address format" });
     }
 
-    // Use APP_URL from environment variable and handle trailing slashes
-    let appUrl = process.env.APP_URL || 'http://localhost:3000';
-    appUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+    const appUrl = getAppUrl(req);
 
     try {
       const resend = getResend();
@@ -501,8 +536,7 @@ async function startServer() {
       return res.status(500).json({ error: "Twilio phone number not configured" });
     }
 
-    let appUrl = process.env.APP_URL || 'http://localhost:3000';
-    appUrl = appUrl.endsWith('/') ? appUrl.slice(0, -1) : appUrl;
+    const appUrl = getAppUrl(req);
 
     try {
       const client = getTwilio();
