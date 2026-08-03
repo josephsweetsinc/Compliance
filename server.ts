@@ -43,6 +43,10 @@ function getTwilio() {
 function getAppUrl(req?: express.Request): string {
   let url = process.env.APP_URL?.trim();
 
+  if (url && url.includes('=')) {
+    url = url.split('=')[0].trim();
+  }
+
   // If APP_URL is not explicitly set or defaults to localhost in container, try resolving from request
   if ((!url || url === 'http://localhost:3000' || url === 'https://localhost:3000') && req) {
     const origin = (req.headers.origin || req.headers.referer) as string | undefined;
@@ -65,9 +69,13 @@ function getAppUrl(req?: express.Request): string {
     url = 'https://reports.complyzzz.com';
   }
 
-  // Ensure subdomain reports.complyzzz.com is used if complyzzz.com is present without subdomain
-  if (url.includes('complyzzz.com') && !url.includes('reports.complyzzz.com')) {
-    url = url.replace('complyzzz.com', 'reports.complyzzz.com');
+  if (url.includes('=')) {
+    url = url.split('=')[0].trim();
+  }
+
+  // Strictly normalize any complyzzz domain variation to https://reports.complyzzz.com
+  if (url.includes('complyzzz.com')) {
+    url = 'https://reports.complyzzz.com';
   }
 
   // Ensure protocol prefix
@@ -90,9 +98,9 @@ async function sendResendEmail(resend: any, params: {
 
   let rawFrom = fromEmail.trim().toLowerCase();
 
-  // Ensure the domain uses the verified subdomain reports.complyzzz.com
-  if (rawFrom.includes('complyzzz.com') && !rawFrom.includes('reports.complyzzz.com')) {
-    rawFrom = rawFrom.replace('complyzzz.com', 'reports.complyzzz.com');
+  // Ensure the domain strictly uses the verified subdomain reports.complyzzz.com
+  if (rawFrom.includes('complyzzz.com')) {
+    rawFrom = rawFrom.replace(/@.*complyzzz\.com$/, '@reports.complyzzz.com');
   }
 
   if (!rawFrom.includes('@')) {
