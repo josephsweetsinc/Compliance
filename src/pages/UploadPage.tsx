@@ -1,19 +1,44 @@
-import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import React, { useState, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useDropzone, FileRejection } from 'react-dropzone';
+import { db, auth } from '../lib/firebase';
+import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { UserProfile, ComplianceMetrics, ComplianceReport } from '../types';
 import { extractTextFromPdf } from '../services/pdfService';
 import { extractComplianceMetrics } from '../services/geminiService';
 import { sendSummaryNotificationToUser } from '../services/emailService';
-import { FileUp, Loader2, AlertCircle, CheckCircle2, FileText, X, User, Mail, Activity, Phone, Sparkles } from 'lucide-react';
+import { 
+  FileUp, 
+  Loader2, 
+  AlertCircle, 
+  CheckCircle2, 
+  FileText, 
+  X, 
+  User, 
+  Mail, 
+  Sparkles, 
+  Plus, 
+  Layers, 
+  RefreshCw, 
+  CreditCard, 
+  Coins, 
+  Building2, 
+  ArrowRight 
+} from 'lucide-react';
 
-export default function UploadPage({ profile }: { profile: UserProfile }) {
+export default function UploadPage({ 
+  profile, 
+  setProfile 
+}: { 
+  profile: UserProfile; 
+  setProfile?: (p: UserProfile) => void;
+}) {
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentFileIndex, setCurrentFileIndex] = useState<number | null>(null);
   const [step, setStep] = useState<'idle' | 'extracting' | 'analyzing' | 'saving'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [showCreditModal, setShowCreditModal] = useState(false);
   const [processedCount, setProcessedCount] = useState(0);
   const [fileResults, setFileResults] = useState<{ 
     status: 'pending' | 'success' | 'error'; 
@@ -33,13 +58,11 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
   const [notificationSettings, setNotificationSettings] = useState({
     enabled: true,
     email: profile.email || '',
-    smsEnabled: false,
-    phoneNumber: ''
   });
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragCounter = useRef(0);
-  const [isDragging, setIsDragging] = useState(false);
   const navigate = useNavigate();
+
+  const isUnlimited = profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active';
+  const availableCredits = profile.reportCredits ?? 0;
 
   const handleDetailChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -54,80 +77,77 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
     }));
   };
 
-  const addPdfFiles = (selectedFiles: File[]) => {
+  const addPdfFiles = useCallback((selectedFiles: File[]) => {
     const pdfFiles = selectedFiles.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     
     if (pdfFiles.length === 0 && selectedFiles.length > 0) {
-      setError('Please select or drop valid PDF files.');
+      setError('Please select or drop valid PDF files (.pdf format).');
       return;
     }
 
     if (files.length + pdfFiles.length > 10) {
-      setError('Maximum 10 files allowed at once.');
+      setError(`Maximum 10 files allowed per batch. You already have ${files.length} file(s) selected.`);
       return;
     }
 
     setFiles(prev => {
       const newFiles = [...prev, ...pdfFiles];
-      setFileResults(newFiles.map(() => ({ status: 'pending' })));
+      setFileResults(prevResults => {
+        return newFiles.map((_, idx) => {
+          if (idx < prevResults.length) return prevResults[idx];
+          return { status: 'pending' as const };
+        });
+      });
       return newFiles;
     });
     setError(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  }, [files.length]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []) as File[];
-    addPdfFiles(selectedFiles);
-  };
-
-  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current += 1;
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-      setIsDragging(true);
+  const onDrop = useCallback((acceptedFiles: File[], fileRejections: FileRejection[]) => {
+    if (fileRejections.length > 0) {
+      const invalidFiles = fileRejections.map(r => r.file.name).join(', ');
+      setError(`Some files could not be added (${invalidFiles}). Please ensure files are valid .pdf documents.`);
     }
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current -= 1;
-    if (dragCounter.current <= 0) {
-      setIsDragging(false);
-      dragCounter.current = 0;
+    if (acceptedFiles.length > 0) {
+      addPdfFiles(acceptedFiles);
     }
-  };
+  }, [addPdfFiles]);
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    dragCounter.current = 0;
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFiles = Array.from(e.dataTransfer.files) as File[];
-      addPdfFiles(droppedFiles);
-    }
-  };
+  const {
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    isDragAccept,
+    isDragReject,
+    open: openFileSelector
+  } = useDropzone({
+    onDrop,
+    accept: {
+      'application/pdf': ['.pdf']
+    },
+    multiple: true,
+    noClick: files.length > 0,
+    disabled: loading
+  } as any);
 
   const removeFile = (index: number) => {
     setFiles(prev => {
       const newFiles = prev.filter((_, i) => i !== index);
-      setFileResults(newFiles.map(() => ({ status: 'pending' })));
+      setFileResults(prevResults => prevResults.filter((_, i) => i !== index));
       return newFiles;
     });
   };
 
+  const reset = () => {
+    setFiles([]);
+    setFileResults([]);
+    setCurrentFileIndex(null);
+    setError(null);
+    setStep('idle');
+    setCurrentExtraction(null);
+  };
+
   const calculateCompliance = (metrics: ComplianceMetrics): 'Compliant' | 'Non-Compliant' => {
-    // Deterministic compliance logic:
-    // compliant if: average_usage_hours >= 4 AND usage_days_percent >= 70 AND total_days >= 30
     const isCompliant = 
       (metrics.average_usage_hours || 0) >= 4 && 
       (metrics.usage_days_percent || 0) >= 70 && 
@@ -138,23 +158,27 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
 
   const handleUpload = async (retryOnly: boolean = false) => {
     if (files.length === 0) return;
-    setLoading(true);
-    setError(null);
-    setStep('idle');
-    setCurrentExtraction(null);
-    
-    // Determine which files to process
-    const filesToProcess = retryOnly 
-      ? files.filter((_, i) => fileResults[i]?.status === 'error')
-      : files;
-    
-    // Map of global index to filesToProcess index isn't needed if we use the original indices
+
     const indicesToProcess = retryOnly
       ? files.map((_, i) => i).filter(i => fileResults[i]?.status === 'error')
       : files.map((_, i) => i);
 
+    if (indicesToProcess.length === 0) return;
+
+    // Check credits/subscription
+    if (!isUnlimited) {
+      if (availableCredits < indicesToProcess.length) {
+        setShowCreditModal(true);
+        return;
+      }
+    }
+
+    setLoading(true);
+    setError(null);
+    setStep('idle');
+    setCurrentExtraction(null);
+
     setProcessedCount(0);
-    // If not retryOnly, reset all results. If retryOnly, reset only those being retried.
     setFileResults(prev => {
       const updated = [...prev];
       indicesToProcess.forEach(idx => {
@@ -165,14 +189,11 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
 
     const reportIds: string[] = [];
 
-    let localHasErrors = false;
-
     for (const i of indicesToProcess) {
       setCurrentFileIndex(i);
       const file = files[i];
 
       try {
-        // 1. Extract text from PDF
         setStep('extracting');
         const extraction = await extractTextFromPdf(file);
         
@@ -181,7 +202,7 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         }
 
         if (extraction.isLowQuality) {
-          throw new Error(`Low quality text detected. Average words per page: ${Math.round(extraction.wordCount / extraction.pageCount)}. This usually indicates a scanned document or a non-standard report format. Ensure the PDF is digitally generated and not a scanned image. Suggestion: Export the report directly as a digital PDF from your CPAP manufacturer's software (e.g., ResMed AirView or Philips Care Orchestrator).`);
+          throw new Error(`Low quality text detected. Average words per page: ${Math.round(extraction.wordCount / extraction.pageCount)}. Ensure the PDF is digitally generated.`);
         }
 
         const manufacturer = extraction.detectedManufacturer || 'Generic CPAP';
@@ -199,14 +220,11 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
           return updated;
         });
 
-        // 2. AI Extraction
         setStep('analyzing');
         const metrics = await extractComplianceMetrics(extraction.text);
 
-        // 3. Compliance Logic
         const status = calculateCompliance(metrics);
 
-        // 4. Save to Firestore
         setStep('saving');
         const reportsRef = collection(db, 'reports');
         const newDocRef = doc(reportsRef);
@@ -228,11 +246,8 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         await setDoc(newDocRef, reportData);
         reportIds.push(newDocRef.id);
         
-        // Retrieve bearer token for API route authorization
         const authToken = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
 
-        // 5. Notifications
-        // Automatically email a summary notification to the user (operator) after a report is successfully processed if auto email is enabled
         if (profile.email && profile.autoEmailEnabled !== false) {
           sendSummaryNotificationToUser(reportData, profile.email)
             .catch(err => console.error('Automated operator email summary error:', err));
@@ -246,29 +261,15 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
               'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
-              email: notificationSettings.email,
-              patientName: metrics.patient_name,
-              status: status,
-              reportId: newDocRef.id,
-            }),
-          }).catch(err => console.error('Email error:', err));
-        }
-
-        if (notificationSettings.smsEnabled && notificationSettings.phoneNumber) {
-          fetch('/api/send-sms', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
-              phone: notificationSettings.phoneNumber,
+              type: 'summary',
+              recipientEmail: notificationSettings.email,
               patientName: metrics.patient_name,
               clinicName: profile.clinicName,
               status: status,
               reportId: newDocRef.id,
+              metrics: metrics
             }),
-          }).catch(err => console.error('SMS error:', err));
+          }).catch(err => console.error('Email error:', err));
         }
 
         setFileResults(prev => {
@@ -279,127 +280,197 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
           };
           return updated;
         });
+
       } catch (err: any) {
-        console.error(`Error processing ${file.name}:`, err);
-        localHasErrors = true;
+        console.error(`Error processing file ${file.name}:`, err);
         setFileResults(prev => {
           const updated = [...prev];
           updated[i] = { 
             ...updated[i], 
             status: 'error', 
-            error: err.message || 'Processing failed' 
+            error: err.message || 'Failed to process document' 
           };
           return updated;
         });
+      } finally {
+        setProcessedCount(prev => prev + 1);
       }
-      setProcessedCount(prev => prev + 1);
+    }
+
+    // Deduct credits for successfully processed reports (if on pay-per-report plan)
+    if (!isUnlimited && reportIds.length > 0) {
+      try {
+        const userRef = doc(db, 'users', profile.uid);
+        const remainingCredits = Math.max(0, availableCredits - reportIds.length);
+        await updateDoc(userRef, { reportCredits: remainingCredits });
+        if (setProfile) {
+          setProfile({ ...profile, reportCredits: remainingCredits });
+        }
+      } catch (deductErr) {
+        console.error('Error updating user credits in Firestore:', deductErr);
+      }
     }
 
     setLoading(false);
-    setStep('idle');
     setCurrentFileIndex(null);
 
-    // Final navigation logic
-    if (reportIds.length > 0) {
-      // Check if any files (including those not retried) still have errors
-      // Use setFileResults current state is hard, so we calculate from files + local results
-      // Actually, we can check if there are any errors in the *entire* batch now.
-      // But let's simplify: if the current run encountered any errors, stay on page.
-      if (reportIds.length === 1 && files.length === 1 && !localHasErrors) {
-        navigate(`/dashboard/report/${reportIds[0]}`);
-      } else if (!localHasErrors) {
-        navigate('/dashboard/history');
-      }
-      // If there are errors, stay on the page so they can retry.
-    } else if (localHasErrors) {
-      setError('Processing failed for the selected reports. Please review the errors below and try again.');
+    const successCount = fileResults.filter(r => r.status === 'success').length + reportIds.length;
+    
+    if (reportIds.length === 1 && files.length === 1) {
+      navigate(`/dashboard/report/${reportIds[0]}`);
+    } else if (successCount > 0) {
+      navigate('/dashboard/history');
     }
   };
 
-  const reset = () => {
-    setFiles([]);
-    setError(null);
-    setStep('idle');
-    setCurrentFileIndex(null);
-    setCurrentExtraction(null);
-    setPatientDetails({
-      dob: '',
-      licenseNumber: '',
-      licenseState: ''
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <header className="space-y-3">
+    <div className="max-w-4xl mx-auto space-y-8 pb-12">
+      {/* Header & Balance Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Upload Report</h1>
-          <p className="text-slate-500">Upload a CPAP usage report PDF to generate a compliance determination.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Process CPAP Compliance Reports</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+            Select or drag multiple CPAP machine PDF reports to evaluate DOT & FAA compliance in a single batch queue.
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl font-medium w-fit shadow-sm animate-in fade-in duration-300 select-none">
-          <span className="flex items-center gap-1">🛡️ Your data is secure and not shared</span>
-          <span className="hidden sm:inline text-emerald-300/80">•</span>
-          <span className="flex items-center gap-1">Files are automatically deleted after processing</span>
-        </div>
-      </header>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 space-y-8">
-        {/* Patient Information Section */}
-        <div className="space-y-4">
-          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-            <User size={16} className="text-slate-400" />
-            Driver Information
-          </h2>
+        {/* Plan / Credit Balance Quick Action */}
+        <div className="flex items-center gap-3">
+          {isUnlimited ? (
+            <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 px-3.5 py-2 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs font-bold">
+              <Building2 size={16} />
+              <span>Unlimited Clinic Plan</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 px-3.5 py-1.5 rounded-xl shadow-sm">
+              <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-bold text-xs">
+                <Coins size={16} className="text-blue-600 dark:text-blue-400" />
+                <span>{availableCredits} {availableCredits === 1 ? 'Credit' : 'Credits'}</span>
+              </div>
+              <Link
+                to="/dashboard/billing"
+                className="ml-2 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
+              >
+                + Add Credits ($9/ea)
+              </Link>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Credit Required Modal */}
+      {showCreditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0f172a] max-w-lg w-full rounded-3xl p-6 sm:p-8 border border-slate-100 dark:border-slate-800 shadow-2xl space-y-6 relative">
+            <button
+              onClick={() => setShowCreditModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-2">
+                <CreditCard size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Report Credits Required</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                You have {files.length} report{files.length > 1 ? 's' : ''} queued, but your balance is {availableCredits} credit{availableCredits === 1 ? '' : 's'}. Choose a payment option to continue processing:
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Option A: Pay-per-report */}
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-blue-500 flex flex-col justify-between transition-all bg-slate-50/50 dark:bg-slate-900/40">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400">Pay-As-You-Go</span>
+                  <h4 className="font-bold text-slate-900 dark:text-white text-base mt-1">$9 / Report</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Purchase single report credits or credit packs.
+                  </p>
+                </div>
+                <Link
+                  to="/dashboard/billing"
+                  className="mt-4 w-full py-2.5 px-3 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white rounded-xl text-xs font-bold text-center transition-colors block"
+                >
+                  Buy Report Credits ($9)
+                </Link>
+              </div>
+
+              {/* Option B: Unlimited monthly */}
+              <div className="p-5 rounded-2xl border-2 border-blue-600 dark:border-blue-500 flex flex-col justify-between transition-all bg-blue-50/30 dark:bg-blue-950/20">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400">Best Value</span>
+                  <h4 className="font-bold text-slate-900 dark:text-white text-base mt-1">$250 / Month</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                    Unlimited reports, batch queue, and clinic branding.
+                  </p>
+                </div>
+                <Link
+                  to="/dashboard/billing"
+                  className="mt-4 w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold text-center transition-colors block shadow-md shadow-blue-500/20"
+                >
+                  Get Unlimited Plan
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white dark:bg-[#0f172a] rounded-3xl p-6 sm:p-8 border border-slate-100 dark:border-slate-800/60 shadow-sm space-y-8">
+        {/* Patient Details & Settings */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <User size={16} className="text-slate-400" />
+              Patient & Notification Details
+            </h2>
+            <span className="text-[10px] text-slate-400 italic">Optional patient identifiers</span>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500">Date of Birth (Optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-500">Date of Birth</label>
               <input
                 type="date"
                 name="dob"
                 value={patientDetails.dob}
                 onChange={handleDetailChange}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
+                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500">License Number (Optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-500">Driver License #</label>
               <input
                 type="text"
+                placeholder="e.g. D1234567"
                 name="licenseNumber"
-                placeholder="Ex: DL-1234567"
                 value={patientDetails.licenseNumber}
                 onChange={handleDetailChange}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500">License State (Optional)</label>
-              <select
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-500">License State</label>
+              <input
+                type="text"
+                placeholder="e.g. CA, TX, NY"
                 name="licenseState"
                 value={patientDetails.licenseState}
                 onChange={handleDetailChange}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              >
-                <option value="">Select State</option>
-                {['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'].map(state => (
-                  <option key={state} value={state}>{state}</option>
-                ))}
-              </select>
+                maxLength={2}
+                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase font-sans"
+              />
             </div>
           </div>
-        </div>
 
-        <div className="h-px bg-slate-100" />
-
-        {/* Notification Settings Section */}
-        <div className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Mail size={16} className="text-slate-400" />
-                Email Notifications
-              </h2>
+          <div className="pt-2">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-xs font-bold text-slate-600 flex items-center gap-2">
+                <Mail size={15} className="text-slate-400" />
+                Email Alerts on Complete
+              </label>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input 
                   type="checkbox" 
@@ -409,7 +480,6 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
                   className="sr-only peer" 
                 />
                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                <span className="ml-3 text-sm font-medium text-slate-600">Auto-Email</span>
               </label>
             </div>
             
@@ -432,159 +502,130 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
               </div>
             </div>
           </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Phone size={16} className="text-slate-400" />
-                SMS Notifications
-              </h2>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  name="smsEnabled"
-                  checked={notificationSettings.smsEnabled} 
-                  onChange={handleNotificationChange}
-                  className="sr-only peer" 
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                <span className="ml-3 text-sm font-medium text-slate-600">Recipient SMS</span>
-              </label>
-            </div>
-            
-            <div className={`transition-all duration-300 ${notificationSettings.smsEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500">Recipient Phone Number</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
-                    <Phone size={14} />
-                  </div>
-                  <input
-                    type="tel"
-                    name="phoneNumber"
-                    placeholder="+1 (555) 000-0000"
-                    value={notificationSettings.phoneNumber}
-                    onChange={handleNotificationChange}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-sans"
-                  />
-                </div>
-                <p className="text-[10px] text-slate-400 italic">Includes a secure link to the automated usage review.</p>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="h-px bg-slate-100" />
 
-        {/* Report Upload Section */}
+        {/* Multi-File Dropzone & Batch Queue Section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <FileText size={16} className="text-slate-400" />
-              CPAP Usage Reports
+              <Layers size={16} className="text-slate-400" />
+              CPAP Usage Reports Queue
             </h2>
-            <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
-              {files.length} / 10 Files Selected
-            </span>
+            <div className="flex items-center gap-2">
+              {files.length > 0 && !loading && (
+                <button
+                  onClick={reset}
+                  className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer"
+                >
+                  Clear Queue
+                </button>
+              )}
+              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
+                {files.length} / 10 Files Queued
+              </span>
+            </div>
           </div>
-          
+
           {files.length === 0 ? (
+            /* Multi-File Primary Drop Zone using react-dropzone */
             <div
-              onClick={() => fileInputRef.current?.click()}
-              onDragEnter={handleDragEnter}
-              onDragLeave={handleDragLeave}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-2xl p-10 sm:p-12 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden ${
-                isDragging
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-3xl p-10 sm:p-14 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden select-none ${
+                isDragReject
+                  ? 'border-rose-500 bg-rose-50 ring-4 ring-rose-100'
+                  : isDragAccept || isDragActive
                   ? 'border-blue-500 bg-blue-50/90 ring-4 ring-blue-100 scale-[1.01] shadow-lg'
-                  : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/50'
+                  : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/40'
               }`}
             >
-              <div className={`p-4 rounded-full mb-4 transition-all duration-300 ${
-                isDragging 
+              <input {...getInputProps()} />
+
+              <div className={`p-4 rounded-2xl mb-4 transition-all duration-300 ${
+                isDragReject
+                  ? 'bg-rose-600 text-white'
+                  : isDragActive 
                   ? 'bg-blue-600 text-white scale-110 shadow-lg animate-bounce' 
                   : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100 group-hover:scale-105'
               }`}>
-                <FileUp size={32} />
+                <FileUp size={36} />
               </div>
 
               <p className={`text-lg font-bold mb-1 transition-colors ${
-                isDragging ? 'text-blue-700' : 'text-slate-800'
+                isDragReject ? 'text-rose-700' : isDragActive ? 'text-blue-700' : 'text-slate-800'
               }`}>
-                {isDragging ? 'Drop CPAP PDF reports here' : 'Click or drag CPAP PDFs here'}
+                {isDragReject
+                  ? 'Invalid file type (PDF required)'
+                  : isDragActive
+                  ? 'Drop CPAP PDF reports to queue'
+                  : 'Select or Drag & Drop CPAP PDF Reports'}
               </p>
 
-              <p className="text-slate-500 text-sm mb-3 text-center max-w-sm">
-                {isDragging ? 'Release to add CPAP machine reports to queue' : 'Select or drop up to 10 CPAP machine reports for bulk analysis'}
+              <p className="text-slate-500 text-sm mb-4 text-center max-w-md">
+                {isDragActive
+                  ? 'Release to load documents into your analysis queue'
+                  : 'Select multiple CPAP machine PDF reports at once for bulk compliance extraction'}
               </p>
 
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-100/80 border border-blue-200 px-2.5 py-1 rounded-md">
-                  <Sparkles size={12} />
-                  ResMed AirView & Care Orchestrator Compatible
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100/80 border border-blue-200 px-3 py-1 rounded-lg">
+                  <Sparkles size={13} className="text-blue-600" />
+                  Supports ResMed AirView, Philips Care Orchestrator & DeVilbiss
                 </span>
               </div>
 
-              <p className="mt-4 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg font-medium shadow-2xs select-none">
-                <span className="text-slate-600">🔒 Your data is secure and not shared</span>
+              <p className="mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl font-medium select-none">
+                <span className="text-slate-600">🔒 Secure browser extraction</span>
                 <span className="text-slate-300 hidden sm:inline">•</span>
-                <span className="text-slate-600">Files are automatically deleted after processing</span>
+                <span className="text-slate-600">Up to 10 files per batch processing</span>
               </p>
-
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept=".pdf"
-                multiple
-                className="hidden"
-              />
             </div>
           ) : (
-            <div 
-              onDragEnter={handleDragEnter}
-              onDragLeave={handleDragLeave}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              className={`space-y-6 transition-all rounded-2xl p-3 ${
-                isDragging ? 'border-2 border-dashed border-blue-500 bg-blue-50/80 ring-4 ring-blue-100 shadow-md' : ''
+            /* Queue Container with Drop Target for Adding More Files */
+            <div
+              {...getRootProps()}
+              className={`space-y-5 transition-all rounded-3xl p-4 border ${
+                isDragActive ? 'border-2 border-dashed border-blue-500 bg-blue-50/80 ring-4 ring-blue-100 shadow-md' : 'border-slate-100 bg-slate-50/30'
               }`}
             >
-              {isDragging && (
-                <div className="p-3.5 bg-blue-600 text-white rounded-xl text-center font-bold text-sm flex items-center justify-center gap-2 animate-bounce shadow-md">
-                  <FileUp size={20} />
-                  <span>Drop CPAP PDFs here to add to queue</span>
+              <input {...getInputProps()} />
+
+              {isDragActive && (
+                <div className="p-4 bg-blue-600 text-white rounded-2xl text-center font-bold text-sm flex items-center justify-center gap-2 animate-bounce shadow-md">
+                  <Plus size={22} />
+                  <span>Drop additional CPAP PDFs to append to queue</span>
                 </div>
               )}
 
-              {/* Ready Status Bar */}
-              {!loading && !isDragging && (
-                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-xl animate-in fade-in duration-300">
+              {/* Ready Status Banner */}
+              {!loading && !isDragActive && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-emerald-50/90 border border-emerald-200 rounded-2xl animate-in fade-in duration-300">
                   <div className="flex items-center gap-2.5 text-emerald-900 font-semibold text-xs">
                     <span className="flex h-2.5 w-2.5 relative">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
                     </span>
-                    <span>{files.length} CPAP {files.length === 1 ? 'file' : 'files'} ready for processing</span>
+                    <span>{files.length} CPAP {files.length === 1 ? 'file' : 'files'} in queue</span>
                   </div>
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-3 py-1 rounded-lg border border-emerald-200">
                     <CheckCircle2 size={13} className="text-emerald-600" />
-                    Ready for Compliance Extraction
+                    Ready for Batch Compliance Extraction
                   </span>
                 </div>
               )}
 
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+              {/* Queue File List */}
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
                 {files.map((f, i) => (
-                  <div key={i} className={`flex flex-col p-3 rounded-xl border transition-all ${
-                    currentFileIndex === i ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-slate-50 border-slate-100'
+                  <div key={i} className={`flex flex-col p-3.5 rounded-2xl border transition-all ${
+                    currentFileIndex === i ? 'bg-blue-50/90 border-blue-300 shadow-sm ring-2 ring-blue-100' : 'bg-white border-slate-200/80'
                   }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`p-2 rounded-lg ${
+                        <div className={`p-2.5 rounded-xl ${
                           fileResults[i]?.status === 'error' ? 'bg-rose-100 text-rose-600' :
-                          currentFileIndex === i ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'
+                          currentFileIndex === i ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
                         }`}>
                           {currentFileIndex === i && loading ? (
                             <Loader2 className="animate-spin" size={18} />
@@ -596,17 +637,13 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-slate-800 truncate text-sm">{f.name}</p>
-                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
                             <span className="text-[10px] text-slate-500 font-mono">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
-                            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">Ready</span>
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">Queue #{i + 1}</span>
                             {fileResults[i]?.manufacturer && (
-                              <>
-                                <span className="text-[10px] text-slate-300">•</span>
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100 uppercase tracking-wider">
-                                  {fileResults[i].manufacturer}
-                                </span>
-                                <span className="text-slate-400 text-[10px] truncate max-w-[150px] font-medium">({fileResults[i].format})</span>
-                              </>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100 uppercase tracking-wider">
+                                {fileResults[i].manufacturer} ({fileResults[i].format})
+                              </span>
                             )}
                           </div>
                         </div>
@@ -614,20 +651,28 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
                       
                       <div className="flex items-center gap-2">
                         {!loading && (
-                          <button onClick={() => removeFile(i)} className="p-1.5 text-slate-400 hover:text-rose-600 transition-colors" title="Remove file">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeFile(i);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Remove file from queue"
+                          >
                             <X size={16} />
                           </button>
                         )}
                         {fileResults[i]?.status === 'success' && (
-                          <CheckCircle2 size={18} className="text-emerald-500" />
+                          <CheckCircle2 size={20} className="text-emerald-500" />
                         )}
                         {fileResults[i]?.status === 'error' && (
-                          <AlertCircle size={18} className="text-rose-500" />
+                          <AlertCircle size={20} className="text-rose-500" />
                         )}
                       </div>
                     </div>
                     {fileResults[i]?.status === 'error' && fileResults[i]?.error && (
-                      <p className="mt-2 text-[10px] text-rose-600 font-medium bg-rose-50/50 p-1.5 rounded-lg border border-rose-100/50">
+                      <p className="mt-2 text-[11px] text-rose-600 font-medium bg-rose-50 p-2 rounded-xl border border-rose-100">
                         Error: {fileResults[i].error}
                       </p>
                     )}
@@ -635,50 +680,56 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
                 ))}
               </div>
 
+              {/* Progress and Actions */}
               {loading ? (
-                <div className="space-y-4 py-2">
+                <div className="space-y-4 py-3 bg-white p-4 rounded-2xl border border-slate-100">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 text-blue-600 font-semibold text-sm">
-                      <Loader2 className="animate-spin" size={16} />
+                    <div className="flex items-center gap-2.5 text-blue-600 font-bold text-sm">
+                      <Loader2 className="animate-spin" size={18} />
                       <span>{getStepMessage(step, currentExtraction)}</span>
                     </div>
-                    <span className="text-xs font-bold text-slate-500">
+                    <span className="text-xs font-extrabold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">
                       Processing {processedCount + 1} of {files.length}
                     </span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
                     <div 
-                      className="bg-blue-600 h-full transition-all duration-500" 
-                      style={{ width: ((processedCount / files.length) * 100) + '%' }}
-                    ></div>
+                      className="bg-blue-600 h-full transition-all duration-500 rounded-full" 
+                      style={{ width: `${((processedCount / files.length) * 100)}%` }}
+                    />
                   </div>
-                  <p className="text-[10px] text-slate-400 italic text-center">Batch processing handles multiple files concurrently saving you time.</p>
+                  <p className="text-[11px] text-slate-400 italic text-center">Multi-file batch extraction handles each CPAP report sequentially.</p>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3">
-                  <div className="flex gap-3">
+                <div className="flex flex-col gap-3 pt-2">
+                  <div className="flex flex-col sm:flex-row gap-3">
                     <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                      type="button"
+                      onClick={openFileSelector}
+                      disabled={files.length >= 10}
+                      className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3.5 px-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer text-sm"
                     >
-                      <FileUp size={20} />
-                      <span>Add More</span>
+                      <Plus size={18} />
+                      <span>Add More Files</span>
                     </button>
+
                     <button
+                      type="button"
                       onClick={() => handleUpload(false)}
-                      className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                      className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
                     >
-                      <CheckCircle2 size={20} />
-                      <span>Process {files.length} Reports</span>
+                      <CheckCircle2 size={18} />
+                      <span>Process {files.length} {files.length === 1 ? 'Report' : 'Reports'} Now</span>
                     </button>
                   </div>
                   
                   {fileResults.some(r => r.status === 'error') && (
                     <button
+                      type="button"
                       onClick={() => handleUpload(true)}
-                      className="w-full bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold py-3 rounded-xl transition-all border border-rose-100 flex items-center justify-center gap-2"
+                      className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-3 rounded-xl transition-all border border-rose-200 flex items-center justify-center gap-2 cursor-pointer text-xs"
                     >
-                      <Activity size={20} />
+                      <RefreshCw size={15} />
                       <span>Retry Failed Files</span>
                     </button>
                   )}
@@ -689,25 +740,25 @@ export default function UploadPage({ profile }: { profile: UserProfile }) {
         </div>
 
         {error && (
-          <div className="mt-6 p-4 bg-rose-50 border border-rose-100 text-rose-600 text-sm rounded-xl flex items-start gap-3">
-            <AlertCircle size={20} className="shrink-0" />
+          <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium rounded-2xl flex items-start gap-3">
+            <AlertCircle size={18} className="shrink-0 text-rose-600 mt-0.5" />
             <p>{error}</p>
           </div>
         )}
       </div>
 
-      <section className="bg-blue-50 rounded-2xl p-6 border border-blue-100">
-        <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
-          <AlertCircle size={18} />
-          Compliance Criteria
+      <section className="bg-blue-50/80 rounded-2xl p-6 border border-blue-100">
+        <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2 text-sm">
+          <AlertCircle size={16} />
+          CPAP Compliance Extraction Standards
         </h3>
-        <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside opacity-80 mb-4">
-          <li>Average usage hours ≥ 4.0</li>
-          <li>Usage days percentage ≥ 70%</li>
-          <li>Total days in period ≥ 30</li>
+        <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside opacity-90 mb-3">
+          <li>Average usage hours ≥ 4.0 hours per night</li>
+          <li>Usage days percentage ≥ 70% of days evaluated</li>
+          <li>Evaluation timeframe span ≥ 30 consecutive days</li>
         </ul>
-        <p className="text-[10px] text-blue-700/60 italic leading-tight">
-          Disclaimer: This automated analysis is designed to facilitate quick compliance verification. Please verify automated results against the original raw CPAP report prior to your DOT or FAA physical exam.
+        <p className="text-[10px] text-blue-700/70 italic leading-normal">
+          Disclaimer: Automated AI multi-file extraction is designed to streamline DOT & FAA compliance reviews. Always double-check metrics against original manufacturer printouts prior to signing medical certifications.
         </p>
       </section>
     </div>
@@ -719,21 +770,12 @@ function getStepMessage(
   currentExtraction: { manufacturer: string; format: string } | null
 ) {
   switch (step) {
-    case 'extracting': return 'Extracting text from PDF...';
+    case 'extracting': return 'Extracting PDF text layer...';
     case 'analyzing': 
       return currentExtraction 
         ? `Analyzing ${currentExtraction.manufacturer} Report (${currentExtraction.format})...` 
-        : 'AI Analysis of usage metrics...';
-    case 'saving': return 'Finalizing report...';
+        : 'Extracting usage metrics with AI...';
+    case 'saving': return 'Saving compliance evaluation...';
     default: return 'Processing...';
-  }
-}
-
-function getProgress(step: string) {
-  switch (step) {
-    case 'extracting': return 33;
-    case 'analyzing': return 66;
-    case 'saving': return 90;
-    default: return 0;
   }
 }

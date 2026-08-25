@@ -5,6 +5,24 @@ export interface UserProfile {
   clinicName: string;
   createdAt: string;
   autoEmailEnabled?: boolean;
+  // Billing and Subscription
+  subscriptionPlan?: 'free' | 'per_report' | 'monthly_clinic';
+  subscriptionStatus?: 'active' | 'inactive' | 'trial' | 'canceled';
+  subscriptionCurrentPeriodEnd?: string;
+  reportCredits?: number;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  userId: string;
+  amount: number; // in dollars (e.g. 9 or 250)
+  type: 'single_report' | 'credit_pack' | 'monthly_subscription';
+  creditsAdded?: number;
+  status: 'completed' | 'pending' | 'failed';
+  stripeSessionId?: string;
+  createdAt: string;
 }
 
 export interface ComplianceMetrics {

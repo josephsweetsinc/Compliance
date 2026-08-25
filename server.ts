@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Resend } from 'resend';
 import twilio from 'twilio';
+import Stripe from 'stripe';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -13,6 +14,21 @@ const __dirname = path.dirname(__filename);
 
 let resendClient: Resend | null = null;
 let twilioClient: any = null;
+let stripeClient: Stripe | null = null;
+
+function getStripe(): Stripe | null {
+  let key = process.env.STRIPE_SECRET_KEY?.trim() || '';
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  if (!key) {
+    return null;
+  }
+  if (!stripeClient) {
+    stripeClient = new Stripe(key);
+  }
+  return stripeClient;
+}
 
 function getResend() {
   let key = process.env.RESEND_API_KEY?.trim() || '';
@@ -29,62 +45,64 @@ function getResend() {
 }
 
 function getTwilio() {
-  if (!twilioClient) {
-    const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
-    const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-    if (!sid || !token) {
-      throw new Error('TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN environment variable is missing.');
-    }
-    twilioClient = twilio(sid, token);
+  let sid = process.env.TWILIO_ACCOUNT_SID?.trim() || '';
+  if ((sid.startsWith('"') && sid.endsWith('"')) || (sid.startsWith("'") && sid.endsWith("'"))) {
+    sid = sid.slice(1, -1).trim();
   }
-  return twilioClient;
+  let token = process.env.TWILIO_AUTH_TOKEN?.trim() || '';
+  if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+    token = token.slice(1, -1).trim();
+  }
+
+  if (!sid || !token) {
+    throw new Error('TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN environment variable is missing.');
+  }
+
+  if (!sid.startsWith('AC')) {
+    throw new Error('TWILIO_ACCOUNT_SID must start with "AC". Please check your Twilio credentials in environment settings.');
+  }
+
+  return twilio(sid, token);
 }
 
 function getAppUrl(req?: express.Request): string {
-  let url = process.env.APP_URL?.trim();
-
-  if (url && url.includes('=')) {
-    url = url.split('=')[0].trim();
-  }
-
-  // If APP_URL is not explicitly set or defaults to localhost in container, try resolving from request
-  if ((!url || url === 'http://localhost:3000' || url === 'https://localhost:3000') && req) {
+  // 1. If req is provided, prioritize dynamic host detection from request headers
+  if (req) {
     const origin = (req.headers.origin || req.headers.referer) as string | undefined;
     if (origin) {
       try {
         const parsed = new URL(origin);
-        url = `${parsed.protocol}//${parsed.host}`;
+        if (parsed.host && !parsed.host.includes('localhost:3000')) {
+          return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
+        }
       } catch (e) {
         // ignore invalid URL format
       }
     }
-    if (!url && req.get('host')) {
-      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
-      url = `${proto}://${req.get('host')}`;
+
+    const host = (req.headers['x-forwarded-host'] as string) || req.get('host');
+    const rawProto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+    const proto = rawProto.split(',')[0].trim();
+    if (host && !host.includes('localhost:3000')) {
+      return `${proto}://${host}`.replace(/\/+$/, '');
     }
   }
 
-  // Fallback domain default
-  if (!url) {
-    url = 'https://reports.complyzzz.com';
+  // 2. Fallback to process.env.APP_URL if set in environment (and not generic placeholder)
+  let envUrl = process.env.APP_URL?.trim();
+  if (envUrl && envUrl.includes('=')) {
+    envUrl = envUrl.split('=')[0].trim();
   }
 
-  if (url.includes('=')) {
-    url = url.split('=')[0].trim();
+  if (envUrl && envUrl !== 'http://localhost:3000' && envUrl !== 'https://localhost:3000') {
+    if (!envUrl.startsWith('http://') && !envUrl.startsWith('https://')) {
+      envUrl = `https://${envUrl}`;
+    }
+    return envUrl.replace(/\/+$/, '');
   }
 
-  // Strictly normalize any complyzzz domain variation to https://reports.complyzzz.com
-  if (url.includes('complyzzz.com')) {
-    url = 'https://reports.complyzzz.com';
-  }
-
-  // Ensure protocol prefix
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = `https://${url}`;
-  }
-
-  // Strip trailing slashes
-  return url.replace(/\/+$/, '');
+  // 3. Last fallback
+  return 'https://reports.complyzzz.com';
 }
 
 async function sendResendEmail(resend: any, params: {
@@ -92,9 +110,10 @@ async function sendResendEmail(resend: any, params: {
   to: string;
   subject: string;
   html: string;
+  text?: string;
   attachments?: any[];
 }) {
-  const { fromEmail, to, subject, html, attachments } = params;
+  const { fromEmail, to, subject, html, text, attachments } = params;
 
   let rawFrom = fromEmail.trim().toLowerCase();
 
@@ -116,11 +135,14 @@ async function sendResendEmail(resend: any, params: {
 
   console.log(`Sending Resend email from '${formattedFrom}' to '${to}'...`);
 
+  const plainText = text || html.replace(/<[^>]+>/g, '');
+
   let result = await resend.emails.send({
     from: formattedFrom,
     to: to,
     subject: subject,
     html: html,
+    text: plainText,
     attachments: attachments && attachments.length > 0 ? attachments : undefined
   });
 
@@ -142,6 +164,7 @@ async function sendResendEmail(resend: any, params: {
         to: to,
         subject: subject,
         html: html,
+        text: plainText,
         attachments: attachments && attachments.length > 0 ? attachments : undefined
       });
 
@@ -176,7 +199,14 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  // Preserve raw body buffer for Stripe webhook signature verification
+  app.use(
+    express.json({
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    })
+  );
 
   // IP-based Rate Limiter Middleware for API endpoints (Max 30 requests / min)
   const apiRateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -261,10 +291,20 @@ async function startServer() {
 
       const attachments = [];
       if (pdfBase64 && typeof pdfBase64 === "string") {
-        const base64Content = pdfBase64.replace(/^data:application\/pdf;base64,/, "");
+        let base64Content = pdfBase64;
+        if (base64Content.includes("base64,")) {
+          base64Content = base64Content.split("base64,")[1];
+        }
+        base64Content = base64Content.trim();
+        const pdfBuffer = Buffer.from(base64Content, 'base64');
+
+        // Log validation check for PDF header %PDF
+        const pdfHeader = pdfBuffer.toString('ascii', 0, 5);
+        console.log(`[PDF Attachment Check] Header: '${pdfHeader}', size: ${pdfBuffer.length} bytes`);
+
         attachments.push({
-          filename: `DOT_Compliance_Letter_${safePatientName.replace(/\s+/g, '_')}.pdf`,
-          content: Buffer.from(base64Content, 'base64'),
+          filename: `DOT_Compliance_Letter_${safePatientName.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
+          content: pdfBuffer,
         });
       }
 
@@ -530,45 +570,297 @@ async function startServer() {
     }
   });
 
-  app.post("/api/send-sms", async (req, res) => {
-    const { phone, patientName, clinicName, status, reportId } = req.body;
+  // ===============================================================
+  // Stripe Billing & Checkout Routes ($9/report, $250/month)
+  // ===============================================================
 
-    console.log('Processing SMS request for:', phone);
+  app.get("/api/billing/config", (req, res) => {
+    const hasStripeKey = !!process.env.STRIPE_SECRET_KEY?.trim();
+    const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY?.trim() || '';
+    
+    res.json({
+      configured: hasStripeKey,
+      publishableKey: publishableKey || null,
+      pricing: {
+        perReport: 9, // $9 USD per CPAP compliance report
+        monthlySubscription: 250, // $250 USD per month unlimited clinic plan
+      },
+      plans: [
+        {
+          id: 'per_report',
+          name: 'Pay-Per-Report',
+          price: 9,
+          interval: 'one_time',
+          description: 'Certified DOT & FAA CPAP compliance letter credit. Ideal for individual operators, single physicals, and ad-hoc reviews.',
+          features: [
+            'Instant AI extraction from any CPAP vendor PDF',
+            'Full FMCSA & FAA guideline adherence audit',
+            'Certified clinical compliance verification letter',
+            'SMS & Email delivery directly to phone or medical examiner',
+            'Full PDF export and 1-year audit-safe archive',
+          ]
+        },
+        {
+          id: 'monthly_clinic',
+          name: 'Clinic & Fleet Unlimited',
+          price: 250,
+          interval: 'month',
+          popular: true,
+          description: 'Unlimited CPAP compliance report processing for clinics, occupational health providers, DOT examiners, and transport fleets.',
+          features: [
+            'Unlimited CPAP report uploads and certifications',
+            'Batch multi-file upload queue (up to 10 files at once)',
+            'Automated operator email scorecard notifications',
+            'Custom clinic branding on official determination letters',
+            'Permanent secure report archive & search history',
+            'Dedicated priority support & custom examiner export',
+          ]
+        }
+      ]
+    });
+  });
 
-    if (!phone || !patientName || !status || !reportId) {
-      return res.status(400).json({ error: "Missing required fields" });
+  app.post("/api/billing/create-checkout-session", async (req, res) => {
+    try {
+      const { planType, quantity = 1, userId, userEmail, clinicName } = req.body;
+
+      if (!userId || !userEmail) {
+        return res.status(400).json({ error: "User identification (userId, userEmail) is required." });
+      }
+
+      const appUrl = getAppUrl(req);
+      const stripe = getStripe();
+      const safeQty = Math.max(1, parseInt(quantity, 10) || 1);
+
+      // If Stripe secret key is configured, create live/test Stripe session
+      if (stripe) {
+        let session;
+        if (planType === 'monthly_clinic') {
+          session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            mode: 'subscription',
+            customer_email: userEmail,
+            line_items: [
+              {
+                price_data: {
+                  currency: 'usd',
+                  product_data: {
+                    name: 'ComplyZzz - Clinic & Fleet Unlimited Plan',
+                    description: 'Unlimited DOT Physical & FAA Medical CPAP Compliance Reports',
+                    images: ['https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&q=80&w=600'],
+                  },
+                  unit_amount: 25000, // $250.00 in cents
+                  recurring: {
+                    interval: 'month',
+                  },
+                },
+                quantity: 1,
+              },
+            ],
+            metadata: {
+              userId,
+              userEmail,
+              clinicName: clinicName || '',
+              planType: 'monthly_clinic',
+            },
+            success_url: `${appUrl}/dashboard/billing?session_id={CHECKOUT_SESSION_ID}&status=success&plan=monthly_clinic`,
+            cancel_url: `${appUrl}/dashboard/billing?status=cancelled`,
+          });
+        } else {
+          // Pay-per-report: $9 per report (or batch credit purchase)
+          session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            mode: 'payment',
+            customer_email: userEmail,
+            line_items: [
+              {
+                price_data: {
+                  currency: 'usd',
+                  product_data: {
+                    name: safeQty === 1 ? 'ComplyZzz - Single Report Credit' : `ComplyZzz - ${safeQty} Report Credits Pack`,
+                    description: 'Certified DOT/FAA CPAP compliance determination letter credits ($9/report).',
+                  },
+                  unit_amount: 900, // $9.00 in cents
+                },
+                quantity: safeQty,
+              },
+            ],
+            metadata: {
+              userId,
+              userEmail,
+              clinicName: clinicName || '',
+              planType: 'per_report',
+              credits: String(safeQty),
+            },
+            success_url: `${appUrl}/dashboard/billing?session_id={CHECKOUT_SESSION_ID}&status=success&plan=per_report&credits=${safeQty}`,
+            cancel_url: `${appUrl}/dashboard/billing?status=cancelled`,
+          });
+        }
+
+        return res.json({
+          url: session.url,
+          sessionId: session.id,
+          simulated: false,
+        });
+      }
+
+      // If Stripe is not yet configured with secret keys, provide instant preview simulation response
+      // This allows immediate testing and preview in the development container
+      const simulatedSessionId = `sim_session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const redirectUrl = planType === 'monthly_clinic'
+        ? `${appUrl}/dashboard/billing?session_id=${simulatedSessionId}&status=success&plan=monthly_clinic&simulated=true`
+        : `${appUrl}/dashboard/billing?session_id=${simulatedSessionId}&status=success&plan=per_report&credits=${safeQty}&simulated=true`;
+
+      return res.json({
+        url: redirectUrl,
+        sessionId: simulatedSessionId,
+        simulated: true,
+        message: "Stripe key is not configured in settings. Returning preview simulated checkout URL for instant testing.",
+      });
+    } catch (err: any) {
+      console.error('Create checkout session error:', err);
+      res.status(500).json({ error: err.message || 'Failed to initialize payment checkout session.' });
+    }
+  });
+
+  app.post("/api/billing/verify-session", async (req, res) => {
+    try {
+      const { sessionId, userId } = req.body;
+
+      if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required." });
+      }
+
+      // Check if simulated session
+      if (sessionId.startsWith('sim_session_')) {
+        return res.json({
+          verified: true,
+          simulated: true,
+          status: 'complete',
+          customerEmail: req.body.userEmail || '',
+        });
+      }
+
+      const stripe = getStripe();
+      if (!stripe) {
+        return res.json({
+          verified: true,
+          simulated: true,
+          status: 'complete',
+        });
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['customer', 'subscription'],
+      });
+
+      if (session.payment_status === 'paid' || session.status === 'complete') {
+        const planType = session.metadata?.planType || 'per_report';
+        const credits = parseInt(session.metadata?.credits || '1', 10);
+        const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+        const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+
+        return res.json({
+          verified: true,
+          paymentStatus: session.payment_status,
+          planType,
+          credits,
+          customerId,
+          subscriptionId,
+          amountTotal: session.amount_total ? session.amount_total / 100 : 0,
+        });
+      } else {
+        return res.json({
+          verified: false,
+          paymentStatus: session.payment_status,
+          status: session.status,
+        });
+      }
+    } catch (err: any) {
+      console.error('Verify checkout session error:', err);
+      res.status(500).json({ error: err.message || 'Failed to verify checkout session.' });
+    }
+  });
+
+  app.post("/api/billing/create-portal-session", async (req, res) => {
+    try {
+      const { customerId } = req.body;
+      const stripe = getStripe();
+      const appUrl = getAppUrl(req);
+
+      if (!stripe || !customerId) {
+        return res.json({
+          url: `${appUrl}/dashboard/billing`,
+          simulated: true,
+        });
+      }
+
+      const portalSession = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: `${appUrl}/dashboard/billing`,
+      });
+
+      res.json({ url: portalSession.url });
+    } catch (err: any) {
+      console.error('Portal session error:', err);
+      res.status(500).json({ error: err.message || 'Failed to create customer portal session.' });
+    }
+  });
+
+  app.post("/api/billing/webhook", async (req: any, res) => {
+    const stripe = getStripe();
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+
+    if (!stripe) {
+      return res.status(200).json({ received: true, simulated: true });
     }
 
-    const fromPhone = process.env.TWILIO_PHONE_NUMBER;
-    if (!fromPhone) {
-      return res.status(500).json({ error: "Twilio phone number not configured" });
-    }
-
-    const appUrl = getAppUrl(req);
+    let event: Stripe.Event;
 
     try {
-      const client = getTwilio();
-      const reportUrl = `${appUrl}/report/${reportId}`;
-      
-      const clinicText = clinicName ? ` from ${clinicName}` : '';
-      const message = `Alert: A new CPAP compliance report for ${patientName} is ready${clinicText}. Status: ${status}. View summary at: ${reportUrl}`;
-
-      const response = await client.messages.create({
-        body: message,
-        from: fromPhone,
-        to: phone
-      });
-
-      console.log(`SMS sent successfully to ${phone}, SID: ${response.sid}`);
-      res.json({ success: true, sid: response.sid });
+      if (webhookSecret && sig && req.rawBody) {
+        event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
+      } else {
+        event = req.body;
+      }
     } catch (err: any) {
-      console.error('SMS Service Error:', err.message);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to send SMS notification.',
-        message: err.message 
-      });
+      console.error(`⚠️ Webhook signature verification failed:`, err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
     }
+
+    // Handle supported Stripe events
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log(`[Stripe Webhook] Checkout session completed: ${session.id} for user ${session.metadata?.userId}`);
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log(`[Stripe Webhook] Subscription deleted: ${subscription.id}`);
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log(`[Stripe Webhook] Subscription updated: ${subscription.id} status=${subscription.status}`);
+        break;
+      }
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.log(`[Stripe Webhook] Invoice payment succeeded: ${invoice.id}`);
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.warn(`[Stripe Webhook] Invoice payment failed: ${invoice.id}`);
+        break;
+      }
+      default:
+        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
   });
 
   // Vite middleware for development

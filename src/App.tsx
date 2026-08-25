@@ -5,7 +5,7 @@ import { auth, logout } from './lib/firebase';
 import { UserProfile } from './types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles } from 'lucide-react';
 import { ThemeToggle } from './components/ThemeToggle';
 
 // Pages
@@ -16,6 +16,7 @@ import UploadPage from './pages/UploadPage';
 import ResultPage from './pages/ResultPage';
 import HistoryPage from './pages/HistoryPage';
 import HelpPage from './pages/HelpPage';
+import BillingPage from './pages/BillingPage';
 import Analytics from './components/Analytics';
 
 function App() {
@@ -116,6 +117,22 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
           <SidebarLink to="/dashboard" icon={<LayoutDashboard size={20} />} label="Dashboard" />
           <SidebarLink to="/dashboard/upload" icon={<FileUp size={20} />} label="Upload Report" />
           <SidebarLink to="/dashboard/history" icon={<History size={20} />} label="Report History" />
+          <SidebarLink 
+            to="/dashboard/billing" 
+            icon={<CreditCard size={20} />} 
+            label="Plans & Billing"
+            badge={
+              profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active' ? (
+                <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Unlimited
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">
+                  {profile.reportCredits ?? 0} {profile.reportCredits === 1 ? 'Credit' : 'Credits'}
+                </span>
+              )
+            }
+          />
           <SidebarLink to="/dashboard/help" icon={<HelpCircle size={20} />} label="Help & FAQ" />
         </nav>
 
@@ -142,9 +159,10 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
         <div className="max-w-5xl mx-auto p-8">
           <Routes>
             <Route path="/" element={<DashboardPage profile={profile} setProfile={setProfile} />} />
-            <Route path="/upload" element={<UploadPage profile={profile} />} />
+            <Route path="/upload" element={<UploadPage profile={profile} setProfile={setProfile} />} />
             <Route path="/report/:id" element={<ResultPage profile={profile} />} />
             <Route path="/history" element={<HistoryPage profile={profile} />} />
+            <Route path="/billing" element={<BillingPage profile={profile} setProfile={setProfile} />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="*" element={<Navigate to="/dashboard" />} />
           </Routes>
@@ -154,14 +172,17 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
   );
 }
 
-function SidebarLink({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
+function SidebarLink({ to, icon, label, badge }: { to: string; icon: React.ReactNode; label: string; badge?: React.ReactNode }) {
   return (
     <Link
       to={to}
-      className="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors font-medium"
+      className="flex items-center justify-between px-3 py-2 text-slate-600 dark:text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors font-medium group"
     >
-      {icon}
-      <span>{label}</span>
+      <div className="flex items-center gap-3">
+        {icon}
+        <span>{label}</span>
+      </div>
+      {badge && <div>{badge}</div>}
     </Link>
   );
 }
@@ -180,6 +201,9 @@ function ProfileSetup({ user, setProfile }: { user: User; setProfile: (p: UserPr
       displayName: user.displayName || '',
       clinicName: clinicName.trim(),
       createdAt: new Date().toISOString(),
+      reportCredits: 1, // 1 complimentary trial credit to try their first report
+      subscriptionPlan: 'free',
+      subscriptionStatus: 'trial',
     };
     await setDoc(doc(db, 'users', user.uid), newProfile);
     setProfile(newProfile);

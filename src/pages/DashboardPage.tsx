@@ -3,7 +3,7 @@ import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } 
 import { db } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { Link } from 'react-router-dom';
-import { FileUp, History, CheckCircle, XCircle, Clock, ChevronRight, Mail, Settings, ShieldCheck, Loader2 } from 'lucide-react';
+import { FileUp, History, CheckCircle, XCircle, Clock, ChevronRight, Mail, Settings, ShieldCheck, Loader2, CreditCard, Coins, Building2, Zap } from 'lucide-react';
 import { formatDate } from '../lib/utils';
 
 export default function DashboardPage({ profile, setProfile }: { profile: UserProfile; setProfile: (p: UserProfile) => void }) {
@@ -80,25 +80,52 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
       </header>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
-          icon={<History className="text-blue-600" />}
+          icon={<History className="text-blue-600 dark:text-blue-400" />}
           label="Recent Reports"
           value={(stats.total ?? 0).toString()}
-          bgColor="bg-blue-50"
+          bgColor="bg-blue-50 dark:bg-blue-950/30"
         />
         <StatCard
-          icon={<CheckCircle className="text-emerald-600" />}
+          icon={<CheckCircle className="text-emerald-600 dark:text-emerald-400" />}
           label="Compliant"
           value={(stats.compliant ?? 0).toString()}
-          bgColor="bg-emerald-50"
+          bgColor="bg-emerald-50 dark:bg-emerald-950/30"
         />
         <StatCard
-          icon={<XCircle className="text-rose-600" />}
+          icon={<XCircle className="text-rose-600 dark:text-rose-400" />}
           label="Non-Compliant"
           value={(stats.nonCompliant ?? 0).toString()}
-          bgColor="bg-rose-50"
+          bgColor="bg-rose-50 dark:bg-rose-950/30"
         />
+        <div className="bg-white dark:bg-[#0f172a] p-6 rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm flex flex-col justify-between transition-colors duration-200">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">Plan & Credits</span>
+            <div className={`p-3 rounded-xl ${profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active' ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400' : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400'}`}>
+              {profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active' ? (
+                <Building2 size={20} />
+              ) : (
+                <Coins size={20} />
+              )}
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-xl font-bold text-slate-900 dark:text-white">
+              {profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active'
+                ? 'Unlimited'
+                : `${profile.reportCredits ?? 0} Credits`}
+            </p>
+            <Link
+              to="/dashboard/billing"
+              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-flex items-center gap-1"
+            >
+              {profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active'
+                ? 'Manage Plan ($250/mo)'
+                : '+ Top Up ($9/ea or $250/mo)'}
+            </Link>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-8">

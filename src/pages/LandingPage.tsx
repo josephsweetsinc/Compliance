@@ -39,6 +39,7 @@ export default function LandingPage() {
           <div className="hidden md:flex items-center gap-8">
             <a href="#features" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Features</a>
             <a href="#how-it-works" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">How it Works</a>
+            <a href="#pricing" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Pricing</a>
             <a href="#security" className="text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Security</a>
           </div>
           <div className="flex items-center gap-4">
@@ -236,6 +237,117 @@ export default function LandingPage() {
                    <div key={i} className="w-2 h-2 rounded-full bg-blue-600" />
                  ))}
                </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Section */}
+      <section id="pricing" className="py-24 px-6 bg-slate-50 dark:bg-[#0f172a]/60 border-y border-slate-200/80 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full text-xs font-bold uppercase tracking-wider mb-4">
+              <span>Transparent, Flat-Rate Pricing</span>
+            </div>
+            <h2 className="text-4xl lg:text-5xl font-bold text-slate-900 dark:text-white tracking-tight">
+              Pay As You Go or Go Unlimited
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 mt-4 text-base leading-relaxed">
+              No hidden fees. Individual commercial operators pay per certified report, while clinics and fleet safety managers unlock unlimited processing.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            {/* Pay Per Report: $9/Report */}
+            <div className="bg-white dark:bg-[#0b0f19] rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                  Pay-As-You-Go
+                </span>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-4">Pay-Per-Report</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                  Perfect for independent commercial drivers, aviators, and one-off medical exams.
+                </p>
+                <div className="mt-6 flex items-baseline gap-2 pb-6 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-5xl font-extrabold text-slate-900 dark:text-white">$9</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">/ report letter</span>
+                </div>
+                <ul className="space-y-3.5 text-sm text-slate-600 dark:text-slate-300 my-8">
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Instant AI parsing from any CPAP vendor PDF</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>FMCSA 70% compliance rule determination</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Certified PDF letter download for medical examiner</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Instant SMS delivery link to your smartphone</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => navigate('/login')}
+                className="w-full py-4 px-6 rounded-2xl font-bold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition-all text-center cursor-pointer"
+              >
+                Get Started ($9/Report)
+              </button>
+            </div>
+
+            {/* Clinic & Fleet Plan: $250/Month */}
+            <div className="bg-gradient-to-b from-blue-50/70 to-white dark:from-blue-950/30 dark:to-[#0b0f19] rounded-3xl border-2 border-blue-600 dark:border-blue-500 p-8 shadow-xl relative flex flex-col justify-between">
+              <div className="absolute -top-3.5 right-8 bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-widest px-3.5 py-1 rounded-full shadow-md">
+                Clinic & Fleet Standard
+              </div>
+
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/60 px-3 py-1 rounded-full">
+                  Monthly Subscription
+                </span>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-4">Clinic & Fleet Plan</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">
+                  Unlimited CPAP report audits for occupational health clinics, DOT examiners, and motor carriers.
+                </p>
+                <div className="mt-6 flex items-baseline gap-2 pb-6 border-b border-blue-100 dark:border-slate-800">
+                  <span className="text-5xl font-extrabold text-slate-900 dark:text-white">$250</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">/ month</span>
+                </div>
+                <ul className="space-y-3.5 text-sm text-slate-700 dark:text-slate-200 my-8">
+                  <li className="flex items-center gap-3 font-semibold">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Unlimited monthly CPAP report evaluations</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Batch multi-file upload queue (10 files at once)</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Automated email scorecards to drivers & examiners</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Custom clinic & practice branding on letters</span>
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <CheckCircle2 size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span>Permanent encrypted cloud archive & priority support</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => navigate('/login')}
+                className="w-full py-4 px-6 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 text-white transition-all text-center shadow-lg shadow-blue-500/20 cursor-pointer"
+              >
+                Subscribe for $250/Month
+              </button>
             </div>
           </div>
         </div>

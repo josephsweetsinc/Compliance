@@ -5,7 +5,7 @@ import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
-import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle } from 'lucide-react';
 
 export default function ResultPage({ profile }: { profile: UserProfile }) {
   const { id } = useParams<{ id: string }>();
@@ -247,18 +247,64 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   }
 
   if (error || !report) {
+    const isUnauthorized = error?.toLowerCase().includes('unauthorized');
     return (
-      <div className="p-12 text-center">
-        <div className="mb-4 flex justify-center">
-          <div className="p-4 bg-rose-50 rounded-full">
-            <XCircle className="text-rose-600" size={32} />
+      <div className="min-h-[70vh] flex flex-col items-center justify-center py-12 px-4 animate-in fade-in duration-300">
+        <div className="max-w-lg w-full bg-white dark:bg-[#0f172a] rounded-3xl p-8 border border-slate-200/80 dark:border-slate-800 shadow-xl text-center space-y-6 relative overflow-hidden">
+          {/* Accent top stripe */}
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-500" />
+
+          {/* Icon Badge */}
+          <div className="flex justify-center">
+            <div className={`p-4 rounded-2xl ${isUnauthorized ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60'}`}>
+              {isUnauthorized ? <ShieldAlert size={42} /> : <FileX size={42} />}
+            </div>
+          </div>
+
+          {/* Title & Description */}
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wider uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+              {isUnauthorized ? '403 Access Denied' : '404 Report Not Found'}
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {isUnauthorized ? 'Unauthorized Access' : 'Report Unavailable or Expired'}
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              {error || 'The requested CPAP compliance report could not be found. The link may be expired, invalid, or deleted by the operator.'}
+            </p>
+          </div>
+
+          {/* Guidance Card */}
+          <div className="bg-slate-50 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-200/60 dark:border-slate-800 text-left space-y-2 text-xs text-slate-600 dark:text-slate-400">
+            <p className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <HelpCircle size={14} className="text-blue-500" />
+              <span>Recommended Next Steps:</span>
+            </p>
+            <ul className="list-disc pl-5 space-y-1 text-slate-600 dark:text-slate-400">
+              <li>Browse your <strong>Report History</strong> to access all saved compliance evaluations.</li>
+              <li>Verify that you are signed into the correct operator or clinic profile.</li>
+              <li>If you need a new compliance evaluation, re-upload the CPAP report PDF.</li>
+            </ul>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <Link
+              to="/dashboard/history"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-bold rounded-xl text-sm transition-all shadow-md shadow-blue-500/20 cursor-pointer"
+            >
+              <History size={16} />
+              <span>View Report History</span>
+            </Link>
+            <Link
+              to="/dashboard/upload"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-sm transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
+            >
+              <FileUp size={16} />
+              <span>Upload New Report</span>
+            </Link>
           </div>
         </div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Error</h2>
-        <p className="text-slate-500 mb-6">{error || 'Something went wrong.'}</p>
-        <Link to="/history" className="text-blue-600 hover:underline font-semibold">
-          Back to History
-        </Link>
       </div>
     );
   }

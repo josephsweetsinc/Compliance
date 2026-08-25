@@ -38,7 +38,15 @@ service cloud.firestore {
              data.uid is string && data.uid == request.auth.uid &&
              data.email is string && data.email.size() > 0 && data.email.size() <= 256 &&
              data.clinicName is string && data.clinicName.size() > 0 && data.clinicName.size() <= 200 &&
-             data.createdAt is string;
+             data.createdAt is string &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200)) &&
+             (!('autoEmailEnabled' in data) || data.autoEmailEnabled is bool) &&
+             (!('subscriptionPlan' in data) || (data.subscriptionPlan is string && data.subscriptionPlan in ['free', 'per_report', 'monthly_clinic'])) &&
+             (!('subscriptionStatus' in data) || (data.subscriptionStatus is string && data.subscriptionStatus in ['active', 'inactive', 'trial', 'canceled'])) &&
+             (!('subscriptionCurrentPeriodEnd' in data) || (data.subscriptionCurrentPeriodEnd is string && data.subscriptionCurrentPeriodEnd.size() <= 100)) &&
+             (!('reportCredits' in data) || (data.reportCredits is number && data.reportCredits >= 0)) &&
+             (!('stripeCustomerId' in data) || (data.stripeCustomerId is string && data.stripeCustomerId.size() <= 256)) &&
+             (!('stripeSubscriptionId' in data) || (data.stripeSubscriptionId is string && data.stripeSubscriptionId.size() <= 256));
     }
 
     function isValidReport(data) {
