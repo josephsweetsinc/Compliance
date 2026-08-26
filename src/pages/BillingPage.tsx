@@ -17,7 +17,10 @@ import {
   CheckCircle2, 
   RefreshCw,
   ExternalLink,
-  Coins
+  Coins,
+  Copy,
+  CheckCheck,
+  X
 } from 'lucide-react';
 
 interface BillingConfig {
@@ -45,6 +48,9 @@ export default function BillingPage({
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [creditQuantity, setCreditQuantity] = useState<number>(1);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [checkoutModal, setCheckoutModal] = useState<{ url: string; planName: string; amount: string; sessionId?: string } | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [verifyingModalPayment, setVerifyingModalPayment] = useState(false);
 
   const sessionId = searchParams.get('session_id');
   const statusParam = searchParams.get('status');
@@ -80,7 +86,7 @@ export default function BillingPage({
             body: JSON.stringify({ 
               sessionId, 
               userId: profile.uid,
-              userEmail: profile.email,
+              userEmail: profile.email || '',
             }),
           });
 
@@ -174,35 +180,69 @@ export default function BillingPage({
         body: JSON.stringify({
           planType,
           quantity,
-          userId: profile.uid,
-          userEmail: profile.email,
-          clinicName: profile.clinicName,
+          userId: profile?.uid || 'user_' + Date.now(),
+          userEmail: profile?.email || 'operator@complyzzz.com',
+          clinicName: profile?.clinicName || '',
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to initialize checkout.');
+        throw new Error(data.error || 'Failed to initialize checkout session on server.');
+      }
+
+      if (data.simulated) {
+        // In preview simulation mode, apply smoothly via local client router
+        navigate(
+          `/dashboard/billing?session_id=${data.sessionId}&status=success&plan=${planType}${
+            planType === 'per_report' ? `&credits=${quantity}` : ''
+          }&simulated=true`
+        );
+        return;
       }
 
       if (data.url) {
-        window.location.href = data.url;
+        const planLabel = planType === 'monthly_clinic' ? 'Clinic & Fleet Unlimited Plan' : `${quantity} Report Credit${quantity > 1 ? 's' : ''}`;
+        const amountLabel = planType === 'monthly_clinic' ? '$250/mo' : `$${quantity * 9}`;
+
+        // Attempt opening Stripe Checkout directly in a new tab
+        const checkoutWindow = window.open(data.url, '_blank', 'noopener,noreferrer');
+
+        // If popup was blocked or running inside embedded iframe, display the explicit checkout modal
+        if (!checkoutWindow || checkoutWindow.closed || typeof checkoutWindow.closed === 'undefined') {
+          setCheckoutModal({
+            url: data.url,
+            planName: planLabel,
+            amount: amountLabel,
+            sessionId: data.sessionId,
+          });
+        } else {
+          // Even if window opened, keep modal ready in case user needs to reopen or copy
+          setCheckoutModal({
+            url: data.url,
+            planName: planLabel,
+            amount: amountLabel,
+            sessionId: data.sessionId,
+          });
+        }
       } else {
-        throw new Error('No checkout URL received.');
+        throw new Error('No checkout URL was returned by Stripe.');
       }
     } catch (err: any) {
-      console.error('Checkout error:', err);
+      console.error('Checkout launch error:', err);
       setNotification({
         type: 'error',
-        message: err.message || 'Checkout failed. Please try again.',
+        message: `Checkout connection error: ${err.message || 'Unable to connect to Checkout. Please verify network and settings.'}`,
       });
+    } finally {
       setProcessingPlan(null);
     }
   };
 
   const handleOpenPortal = async () => {
     setLoadingPortal(true);
+    setNotification(null);
     try {
       const res = await fetch('/api/billing/create-portal-session', {
         method: 'POST',
@@ -210,17 +250,65 @@ export default function BillingPage({
         body: JSON.stringify({ customerId: profile.stripeCustomerId }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create customer portal session.');
+      }
       if (data.url) {
-        window.location.href = data.url;
+        window.open(data.url, '_blank', 'noopener,noreferrer');
+      } else {
+        throw new Error('No portal URL received.');
       }
     } catch (err: any) {
       console.error('Portal session error:', err);
       setNotification({
         type: 'error',
-        message: 'Could not launch Stripe customer portal.',
+        message: `Customer Portal notice: ${err.message || 'Could not launch Stripe customer portal.'}`,
       });
     } finally {
       setLoadingPortal(false);
+    }
+  };
+
+  const checkModalPaymentStatus = async () => {
+    if (!checkoutModal?.sessionId || !profile?.uid) return;
+    setVerifyingModalPayment(true);
+    try {
+      const res = await fetch('/api/billing/verify-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: checkoutModal.sessionId,
+          userId: profile.uid,
+          userEmail: profile.email || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.verified) {
+        setCheckoutModal(null);
+        navigate(
+          `/dashboard/billing?session_id=${checkoutModal.sessionId}&status=success&plan=${data.planType || 'per_report'}&credits=${data.credits || 1}`
+        );
+      } else {
+        setNotification({
+          type: 'info',
+          message: 'Payment is not yet marked as completed on Stripe. If you just paid, please allow a few moments and check again.',
+        });
+      }
+    } catch (e: any) {
+      setNotification({
+        type: 'error',
+        message: `Status check error: ${e.message}`,
+      });
+    } finally {
+      setVerifyingModalPayment(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (checkoutModal?.url) {
+      navigator.clipboard.writeText(checkoutModal.url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
     }
   };
 
@@ -228,7 +316,80 @@ export default function BillingPage({
   const availableCredits = profile.reportCredits ?? 0;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-8 animate-in fade-in duration-300 relative">
+      {/* Checkout Session Modal (for Iframe / New Tab Launch) */}
+      {checkoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 md:p-8 space-y-6 relative">
+            <button
+              onClick={() => setCheckoutModal(null)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/50 rounded-2xl text-blue-600 dark:text-blue-400">
+                <CreditCard size={28} />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Stripe Checkout Ready</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {checkoutModal.planName} • <span className="font-semibold text-slate-700 dark:text-slate-300">{checkoutModal.amount}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/60 rounded-2xl p-4 text-xs text-slate-700 dark:text-slate-300 leading-relaxed space-y-2">
+              <p className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                <ShieldCheck size={16} className="text-blue-600 dark:text-blue-400" />
+                Browser Iframe Notice
+              </p>
+              <p>
+                Because secure checkout pages cannot be loaded inside embedded preview frames, please open Stripe Checkout in a new browser tab to complete your payment safely.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <a
+                href={checkoutModal.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-4 px-6 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25 cursor-pointer text-center text-sm"
+              >
+                <span>Open Stripe Checkout in New Tab</span>
+                <ExternalLink size={18} />
+              </a>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {copiedLink ? <CheckCheck size={16} className="text-emerald-600" /> : <Copy size={16} />}
+                  <span>{copiedLink ? 'Link Copied!' : 'Copy Payment Link'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={checkModalPaymentStatus}
+                  disabled={verifyingModalPayment}
+                  className="py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {verifyingModalPayment ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                  <span>I've Completed Payment</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-center text-[11px] text-slate-400">
+              Payments are 256-bit encrypted and handled directly by Stripe.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -239,7 +400,7 @@ export default function BillingPage({
         </div>
 
         {/* Current Plan Badge */}
-        <div className="flex items-center gap-3 bg-white dark:bg-[#0f172a] px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="flex items-center gap-3 bg-white dark:bg-[#0f172a] px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className={`p-2 rounded-lg ${isUnlimitedPlan ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400' : 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400'}`}>
             {isUnlimitedPlan ? <Building2 size={20} /> : <Coins size={20} />}
           </div>
@@ -282,7 +443,7 @@ export default function BillingPage({
       <div className="grid md:grid-cols-2 gap-8">
         
         {/* Tier 1: Pay-Per-Report ($9/Report) */}
-        <div className="bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800/70 p-8 shadow-sm flex flex-col justify-between relative transition-all hover:shadow-md">
+        <div className="bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800/70 p-8 shadow-xs flex flex-col justify-between relative transition-all hover:shadow-md">
           <div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-full text-xs font-bold uppercase tracking-wider mb-4">
               <Zap size={14} className="text-blue-600 dark:text-blue-400" />
@@ -355,7 +516,7 @@ export default function BillingPage({
           <button
             onClick={() => handleCheckout('per_report', creditQuantity)}
             disabled={processingPlan !== null}
-            className="w-full py-3.5 px-6 rounded-2xl font-bold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+            className="w-full py-3.5 px-6 rounded-2xl font-bold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
           >
             {processingPlan === `per_report_${creditQuantity}` ? (
               <>
@@ -520,3 +681,4 @@ export default function BillingPage({
     </div>
   );
 }
+

@@ -622,32 +622,29 @@ async function startServer() {
 
   app.post("/api/billing/create-checkout-session", async (req, res) => {
     try {
-      const { planType, quantity = 1, userId, userEmail, clinicName } = req.body;
-
-      if (!userId || !userEmail) {
-        return res.status(400).json({ error: "User identification (userId, userEmail) is required." });
-      }
+      const { planType = 'per_report', quantity = 1, userId, userEmail, clinicName } = req.body;
+      const effectiveUserId = userId || 'user_' + Date.now();
+      const effectiveEmail = (userEmail && userEmail.trim()) || 'operator@complyzzz.com';
 
       const appUrl = getAppUrl(req);
       const stripe = getStripe();
-      const safeQty = Math.max(1, parseInt(quantity, 10) || 1);
+      const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
 
       // If Stripe secret key is configured, create live/test Stripe session
       if (stripe) {
-        let session;
+        let session: Stripe.Checkout.Session;
         if (planType === 'monthly_clinic') {
           session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'subscription',
-            customer_email: userEmail,
+            customer_email: effectiveEmail,
             line_items: [
               {
                 price_data: {
                   currency: 'usd',
                   product_data: {
                     name: 'ComplyZzz - Clinic & Fleet Unlimited Plan',
-                    description: 'Unlimited DOT Physical & FAA Medical CPAP Compliance Reports',
-                    images: ['https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&q=80&w=600'],
+                    description: 'Unlimited DOT Physical & FAA Medical CPAP Compliance Reports & Letters',
                   },
                   unit_amount: 25000, // $250.00 in cents
                   recurring: {
@@ -658,8 +655,8 @@ async function startServer() {
               },
             ],
             metadata: {
-              userId,
-              userEmail,
+              userId: effectiveUserId,
+              userEmail: effectiveEmail,
               clinicName: clinicName || '',
               planType: 'monthly_clinic',
             },
@@ -671,7 +668,7 @@ async function startServer() {
           session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'payment',
-            customer_email: userEmail,
+            customer_email: effectiveEmail,
             line_items: [
               {
                 price_data: {
@@ -686,8 +683,8 @@ async function startServer() {
               },
             ],
             metadata: {
-              userId,
-              userEmail,
+              userId: effectiveUserId,
+              userEmail: effectiveEmail,
               clinicName: clinicName || '',
               planType: 'per_report',
               credits: String(safeQty),
@@ -715,7 +712,9 @@ async function startServer() {
         url: redirectUrl,
         sessionId: simulatedSessionId,
         simulated: true,
-        message: "Stripe key is not configured in settings. Returning preview simulated checkout URL for instant testing.",
+        planType,
+        credits: safeQty,
+        message: "Stripe key is not configured in settings. Simulation mode active for testing.",
       });
     } catch (err: any) {
       console.error('Create checkout session error:', err);
