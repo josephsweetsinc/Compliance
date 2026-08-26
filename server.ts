@@ -754,37 +754,36 @@ async function startServer() {
 
   app.post("/api/billing/create-checkout-session", async (req: any, res) => {
     try {
-      const { planType, quantity = 1, clinicName } = req.body;
+      const { planType = 'per_report', quantity = 1, clinicName } = req.body;
       // userId/userEmail come from the verified ID token, never from the
-      // request body - otherwise a client could request a checkout session
-      // (and later have it verified) under someone else's account.
-      const userId = req.uid;
-      const userEmail = req.userEmail;
-
-      if (!userId || !userEmail) {
+      // request body or a synthesized guest id - otherwise a client could
+      // request a checkout session (and later have it verified) under
+      // someone else's account, or pay without any account to credit.
+      if (!req.uid || !req.userEmail) {
         return res.status(401).json({ error: "A verified, email-bearing account is required to start checkout." });
       }
+      const effectiveUserId = req.uid;
+      const effectiveEmail = req.userEmail;
 
       const appUrl = getAppUrl(req);
       const stripe = getStripe();
-      const safeQty = Math.max(1, parseInt(quantity, 10) || 1);
+      const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
 
       // If Stripe secret key is configured, create live/test Stripe session
       if (stripe) {
-        let session;
+        let session: Stripe.Checkout.Session;
         if (planType === 'monthly_clinic') {
           session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'subscription',
-            customer_email: userEmail,
+            customer_email: effectiveEmail,
             line_items: [
               {
                 price_data: {
                   currency: 'usd',
                   product_data: {
                     name: 'ComplyZzz - Clinic & Fleet Unlimited Plan',
-                    description: 'Unlimited DOT Physical & FAA Medical CPAP Compliance Reports',
-                    images: ['https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&q=80&w=600'],
+                    description: 'Unlimited DOT Physical & FAA Medical CPAP Compliance Reports & Letters',
                   },
                   unit_amount: 25000, // $250.00 in cents
                   recurring: {
@@ -795,8 +794,8 @@ async function startServer() {
               },
             ],
             metadata: {
-              userId,
-              userEmail,
+              userId: effectiveUserId,
+              userEmail: effectiveEmail,
               clinicName: clinicName || '',
               planType: 'monthly_clinic',
             },
@@ -808,7 +807,7 @@ async function startServer() {
           session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'payment',
-            customer_email: userEmail,
+            customer_email: effectiveEmail,
             line_items: [
               {
                 price_data: {
@@ -823,8 +822,8 @@ async function startServer() {
               },
             ],
             metadata: {
-              userId,
-              userEmail,
+              userId: effectiveUserId,
+              userEmail: effectiveEmail,
               clinicName: clinicName || '',
               planType: 'per_report',
               credits: String(safeQty),
@@ -852,11 +851,20 @@ async function startServer() {
         url: redirectUrl,
         sessionId: simulatedSessionId,
         simulated: true,
-        message: "Stripe key is not configured in settings. Returning preview simulated checkout URL for instant testing.",
+        planType,
+        credits: safeQty,
+        message: "Stripe key is not configured in settings. Simulation mode active for testing.",
       });
     } catch (err: any) {
       console.error('Create checkout session error:', err);
-      res.status(500).json({ error: err.message || 'Failed to initialize payment checkout session.' });
+      const statusCode = typeof err.statusCode === 'number' ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || 'Failed to initialize payment checkout session.',
+        code: err.code || (err.raw?.code ?? null),
+        declineCode: err.decline_code || (err.raw?.decline_code ?? null),
+        type: err.type || (err.raw?.type ?? null),
+        param: err.param || (err.raw?.param ?? null),
+      });
     }
   });
 
@@ -923,11 +931,19 @@ async function startServer() {
           verified: false,
           paymentStatus: session.payment_status,
           status: session.status,
+          planType: session.metadata?.planType,
+          credits: session.metadata?.credits,
         });
       }
     } catch (err: any) {
       console.error('Verify checkout session error:', err);
-      res.status(500).json({ error: err.message || 'Failed to verify checkout session.' });
+      const statusCode = typeof err.statusCode === 'number' ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || 'Failed to verify checkout session.',
+        code: err.code || (err.raw?.code ?? null),
+        declineCode: err.decline_code || (err.raw?.decline_code ?? null),
+        type: err.type || (err.raw?.type ?? null),
+      });
     }
   });
 
@@ -962,7 +978,13 @@ async function startServer() {
       res.json({ url: portalSession.url });
     } catch (err: any) {
       console.error('Portal session error:', err);
-      res.status(500).json({ error: err.message || 'Failed to create customer portal session.' });
+      const statusCode = typeof err.statusCode === 'number' ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || 'Failed to create customer portal session.',
+        code: err.code || (err.raw?.code ?? null),
+        declineCode: err.decline_code || (err.raw?.decline_code ?? null),
+        type: err.type || (err.raw?.type ?? null),
+      });
     }
   });
 
