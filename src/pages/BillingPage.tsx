@@ -20,7 +20,13 @@ import {
   Coins,
   Copy,
   CheckCheck,
-  X
+  X,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+  ShieldAlert,
+  Info
 } from 'lucide-react';
 
 interface BillingConfig {
@@ -29,6 +35,174 @@ interface BillingConfig {
   pricing: {
     perReport: number;
     monthlySubscription: number;
+  };
+}
+
+export interface StripeErrorDetails {
+  title: string;
+  code?: string;
+  declineCode?: string;
+  type?: string;
+  param?: string;
+  statusCode?: number;
+  explanation: string;
+  troubleshootingSteps: string[];
+  rawMessage: string;
+  timestamp: string;
+  retryPlan?: 'per_report' | 'monthly_clinic';
+  retryQuantity?: number;
+  retrySessionId?: string;
+  retryKind?: 'checkout' | 'verify' | 'portal';
+}
+
+function interpretStripeError(
+  errData: any,
+  fallbackMsg: string,
+  retryKind: 'checkout' | 'verify' | 'portal' = 'checkout',
+  retryPlan?: 'per_report' | 'monthly_clinic',
+  retryQuantity: number = 1,
+  retrySessionId?: string
+): StripeErrorDetails {
+  const code = (errData?.code || errData?.raw?.code || '').toString().toLowerCase();
+  const declineCode = (errData?.declineCode || errData?.raw?.decline_code || errData?.decline_code || '').toString().toLowerCase();
+  const errorType = errData?.type || errData?.raw?.type || '';
+  const param = errData?.param || errData?.raw?.param || '';
+  const rawMsg = errData?.error || errData?.message || fallbackMsg;
+
+  let title = 'Payment Issue Encountered';
+  let explanation = 'An issue occurred while processing your request with the payment provider.';
+  let steps: string[] = [
+    'Verify your payment card details and billing address.',
+    'Click "Retry Payment" to attempt the transaction again.',
+    'If the issue persists, try an alternative credit or debit card.',
+  ];
+
+  // Specific Stripe error code and decline code mappings
+  if (code === 'card_declined' || declineCode) {
+    title = 'Payment Card Declined';
+    if (declineCode === 'insufficient_funds') {
+      title = 'Card Declined: Insufficient Funds';
+      explanation = 'Your financial institution declined the transaction because there are insufficient funds or credit limit available.';
+      steps = [
+        'Verify your current bank account balance or available credit limit.',
+        'Try an alternative business or personal credit/debit card.',
+        'Contact your bank to authorize the transaction amount.',
+      ];
+    } else if (declineCode === 'lost_card' || declineCode === 'stolen_card') {
+      title = 'Card Declined: Card Flagged';
+      explanation = 'The transaction was blocked because this card has been flagged as lost or stolen by the issuer.';
+      steps = [
+        'Please enter a different, active payment card.',
+        'Contact your card provider immediately to resolve the account hold.',
+      ];
+    } else if (declineCode === 'expired_card' || code === 'expired_card') {
+      title = 'Card Declined: Expired Card';
+      explanation = 'The card entered has reached its expiration date and was rejected by the issuing bank.';
+      steps = [
+        'Check the expiration month and year (MM/YY) entered.',
+        'Use an active, non-expired credit or debit card.',
+      ];
+    } else if (
+      declineCode === 'incorrect_cvc' || 
+      declineCode === 'invalid_cvc' || 
+      code === 'incorrect_cvc' || 
+      code === 'invalid_cvc'
+    ) {
+      title = 'Card Declined: Invalid Security Code (CVC)';
+      explanation = 'The 3 or 4 digit security code (CVC/CVV) provided did not match your bank records.';
+      steps = [
+        'For Visa, Mastercard, or Discover: check the 3 digits on the back signature strip.',
+        'For American Express: check the 4 digits printed on the front above the account number.',
+        'Click Retry and carefully re-enter the card security code.',
+      ];
+    } else if (
+      declineCode === 'incorrect_number' || 
+      declineCode === 'invalid_number' || 
+      code === 'incorrect_number' || 
+      code === 'invalid_number'
+    ) {
+      title = 'Card Declined: Invalid Card Number';
+      explanation = 'The card number entered is invalid or could not be recognized by Visa/Mastercard/Amex.';
+      steps = [
+        'Double-check all 16 digits of your credit card number.',
+        'Ensure there are no accidental letters, dashes, or missing digits.',
+      ];
+    } else if (declineCode === 'do_not_honor' || declineCode === 'transaction_not_allowed') {
+      title = 'Card Declined: Bank Policy Hold';
+      explanation = 'Your card issuer blocked the charge under their automated fraud prevention or corporate spending policy.';
+      steps = [
+        'Call the phone number on the back of your card to authorize online charges for ComplyZzz.',
+        'Ask your bank to lift any temporary e-commerce or international charge blocks.',
+        'Try a different corporate or personal credit card.',
+      ];
+    } else {
+      explanation = `Your financial institution declined the payment authorization${declineCode ? ` (${declineCode.replace(/_/g, ' ')})` : ''}.`;
+      steps = [
+        'Ensure your billing ZIP code and billing address match your card statement.',
+        'Try an alternate credit or debit card.',
+        'Contact your issuing bank for specific authorization details.',
+      ];
+    }
+  } else if (code === 'expired_card') {
+    title = 'Card Expired';
+    explanation = 'The payment card entered has passed its expiration date.';
+    steps = [
+      'Enter an updated expiration date.',
+      'Use a valid, active credit or debit card.',
+    ];
+  } else if (code === 'incorrect_cvc' || code === 'invalid_cvc') {
+    title = 'Invalid Security Code (CVC)';
+    explanation = 'The card verification code (CVC) provided was invalid.';
+    steps = [
+      'Verify the 3-digit code on the back (or 4-digit code on the front for Amex).',
+      'Click Retry and re-enter the correct security code.',
+    ];
+  } else if (code === 'processing_error') {
+    title = 'Gateway Processing Error';
+    explanation = 'A temporary network glitch occurred between Stripe and the banking card network.';
+    steps = [
+      'Wait 15 to 30 seconds for the banking network to settle.',
+      'Click the "Retry Payment" button below to re-submit.',
+      'Your card was not charged multiple times.',
+    ];
+  } else if (code === 'rate_limit') {
+    title = 'Rate Limit Reached';
+    explanation = 'Too many payment requests were initiated in a short period of time.';
+    steps = [
+      'Wait 10 to 15 seconds before trying again.',
+      'Click "Retry Payment" to continue.',
+    ];
+  } else if (code === 'authentication_required') {
+    title = '3D Secure Authentication Required';
+    explanation = 'Your card issuer requires 3D Secure verification to authorize this online transaction.';
+    steps = [
+      'Approve the verification prompt sent via your banking app or SMS code.',
+      'Click "Retry Payment" to relaunch the verified checkout window.',
+    ];
+  } else if (code === 'parameter_invalid_empty' || code === 'resource_missing') {
+    title = 'Checkout Configuration Notice';
+    explanation = 'A required checkout parameter was missing or could not be verified on the server.';
+    steps = [
+      'Click "Retry Payment" to generate a fresh checkout session.',
+      'Ensure you are logged into your ComplyZzz account.',
+    ];
+  }
+
+  return {
+    title,
+    code: code || undefined,
+    declineCode: declineCode || undefined,
+    type: errorType || undefined,
+    param: param || undefined,
+    statusCode: errData?.statusCode,
+    explanation,
+    troubleshootingSteps: steps,
+    rawMessage: rawMsg,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    retryPlan,
+    retryQuantity,
+    retrySessionId,
+    retryKind,
   };
 }
 
@@ -47,7 +221,14 @@ export default function BillingPage({
   const [processingPlan, setProcessingPlan] = useState<string | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [creditQuantity, setCreditQuantity] = useState<number>(1);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  
+  // High-fidelity notification & structured Stripe error states
+  const [notification, setNotification] = useState<{ type: 'success' | 'info'; message: string } | null>(null);
+  const [stripeError, setStripeError] = useState<StripeErrorDetails | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [copiedDiagnostics, setCopiedDiagnostics] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+
   const [checkoutModal, setCheckoutModal] = useState<{ url: string; planName: string; amount: string; sessionId?: string } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [verifyingModalPayment, setVerifyingModalPayment] = useState(false);
@@ -79,6 +260,7 @@ export default function BillingPage({
   useEffect(() => {
     if (statusParam === 'success' && sessionId && profile?.uid) {
       async function completeCheckout() {
+        setStripeError(null);
         try {
           const res = await fetch('/api/billing/verify-session', {
             method: 'POST',
@@ -90,12 +272,20 @@ export default function BillingPage({
             }),
           });
 
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Verification failed with status ${res.status}`);
-          }
+          const data = await res.json().catch(() => ({}));
 
-          const data = await res.json();
+          if (!res.ok) {
+            const parsedError = interpretStripeError(
+              data,
+              `Verification failed with status ${res.status}`,
+              'verify',
+              (planParam as any) || 'per_report',
+              parseInt(creditsParam || '1', 10),
+              sessionId
+            );
+            setStripeError(parsedError);
+            return;
+          }
 
           if (data.verified) {
             const userRef = doc(db, 'users', profile.uid);
@@ -149,10 +339,15 @@ export default function BillingPage({
           }
         } catch (err: any) {
           console.error('Error verifying payment session:', err);
-          setNotification({
-            type: 'error',
-            message: `Verification notice: ${err.message || 'Unable to verify payment session'}. If your card was charged, your credits will reflect shortly.`,
-          });
+          const parsedError = interpretStripeError(
+            err,
+            err.message || 'Unable to verify payment session with Stripe.',
+            'verify',
+            (planParam as any) || 'per_report',
+            parseInt(creditsParam || '1', 10),
+            sessionId
+          );
+          setStripeError(parsedError);
         } finally {
           // Clean search params without reloading
           setSearchParams({});
@@ -172,6 +367,7 @@ export default function BillingPage({
   const handleCheckout = async (planType: 'per_report' | 'monthly_clinic', quantity: number = 1) => {
     setProcessingPlan(planType === 'per_report' ? `per_report_${quantity}` : 'monthly_clinic');
     setNotification(null);
+    setStripeError(null);
 
     try {
       const res = await fetch('/api/billing/create-checkout-session', {
@@ -186,10 +382,18 @@ export default function BillingPage({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to initialize checkout session on server.');
+        const parsed = interpretStripeError(
+          data,
+          data.error || 'Failed to initialize checkout session on server.',
+          'checkout',
+          planType,
+          quantity
+        );
+        setStripeError(parsed);
+        return;
       }
 
       if (data.simulated) {
@@ -218,7 +422,6 @@ export default function BillingPage({
             sessionId: data.sessionId,
           });
         } else {
-          // Even if window opened, keep modal ready in case user needs to reopen or copy
           setCheckoutModal({
             url: data.url,
             planName: planLabel,
@@ -231,10 +434,14 @@ export default function BillingPage({
       }
     } catch (err: any) {
       console.error('Checkout launch error:', err);
-      setNotification({
-        type: 'error',
-        message: `Checkout connection error: ${err.message || 'Unable to connect to Checkout. Please verify network and settings.'}`,
-      });
+      const parsed = interpretStripeError(
+        err,
+        err.message || 'Unable to connect to Stripe Checkout server.',
+        'checkout',
+        planType,
+        quantity
+      );
+      setStripeError(parsed);
     } finally {
       setProcessingPlan(null);
     }
@@ -243,30 +450,107 @@ export default function BillingPage({
   const handleOpenPortal = async () => {
     setLoadingPortal(true);
     setNotification(null);
+    setStripeError(null);
     try {
       const res = await fetch('/api/billing/create-portal-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId: profile.stripeCustomerId }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to create customer portal session.');
+        const parsed = interpretStripeError(
+          data,
+          data.error || 'Failed to create customer portal session.',
+          'portal'
+        );
+        setStripeError(parsed);
+        return;
       }
       if (data.url) {
         window.open(data.url, '_blank', 'noopener,noreferrer');
       } else {
-        throw new Error('No portal URL received.');
+        throw new Error('No portal URL received from Stripe.');
       }
     } catch (err: any) {
       console.error('Portal session error:', err);
-      setNotification({
-        type: 'error',
-        message: `Customer Portal notice: ${err.message || 'Could not launch Stripe customer portal.'}`,
-      });
+      const parsed = interpretStripeError(
+        err,
+        err.message || 'Could not launch Stripe customer portal.',
+        'portal'
+      );
+      setStripeError(parsed);
     } finally {
       setLoadingPortal(false);
     }
+  };
+
+  const handleRetryAction = async () => {
+    if (!stripeError) return;
+    setIsRetrying(true);
+
+    try {
+      if (stripeError.retryKind === 'checkout') {
+        const plan = stripeError.retryPlan || 'per_report';
+        const qty = stripeError.retryQuantity || creditQuantity || 1;
+        await handleCheckout(plan, qty);
+      } else if (stripeError.retryKind === 'verify' && stripeError.retrySessionId) {
+        // Re-verify session
+        const res = await fetch('/api/billing/verify-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: stripeError.retrySessionId,
+            userId: profile.uid,
+            userEmail: profile.email || '',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.verified) {
+          setStripeError(null);
+          navigate(
+            `/dashboard/billing?session_id=${stripeError.retrySessionId}&status=success&plan=${data.planType || 'per_report'}&credits=${data.credits || 1}`
+          );
+        } else {
+          setStripeError(
+            interpretStripeError(
+              data,
+              'Payment session status still pending or unverified on Stripe.',
+              'verify',
+              stripeError.retryPlan,
+              stripeError.retryQuantity,
+              stripeError.retrySessionId
+            )
+          );
+        }
+      } else if (stripeError.retryKind === 'portal') {
+        await handleOpenPortal();
+      }
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const handleCopyDiagnostics = () => {
+    if (!stripeError) return;
+    const diagnosticPayload = JSON.stringify({
+      timestamp: stripeError.timestamp,
+      errorTitle: stripeError.title,
+      stripeCode: stripeError.code || 'none',
+      stripeDeclineCode: stripeError.declineCode || 'none',
+      errorType: stripeError.type || 'none',
+      param: stripeError.param || 'none',
+      rawMessage: stripeError.rawMessage,
+      action: stripeError.retryKind,
+      plan: stripeError.retryPlan,
+      quantity: stripeError.retryQuantity,
+      userUid: profile?.uid,
+      userEmail: profile?.email,
+    }, null, 2);
+
+    navigator.clipboard.writeText(diagnosticPayload);
+    setCopiedDiagnostics(true);
+    setTimeout(() => setCopiedDiagnostics(false), 2500);
   };
 
   const checkModalPaymentStatus = async () => {
@@ -282,7 +566,7 @@ export default function BillingPage({
           userEmail: profile.email || '',
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.verified) {
         setCheckoutModal(null);
         navigate(
@@ -295,10 +579,15 @@ export default function BillingPage({
         });
       }
     } catch (e: any) {
-      setNotification({
-        type: 'error',
-        message: `Status check error: ${e.message}`,
-      });
+      const parsed = interpretStripeError(
+        e,
+        e.message || 'Status check error',
+        'verify',
+        'per_report',
+        1,
+        checkoutModal.sessionId
+      );
+      setStripeError(parsed);
     } finally {
       setVerifyingModalPayment(false);
     }
@@ -413,19 +702,158 @@ export default function BillingPage({
         </div>
       </header>
 
-      {/* Notification Toast */}
+      {/* Structured Stripe Error Troubleshooting Card / Toast */}
+      {stripeError && (
+        <div 
+          id="stripe-error-card"
+          className="bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-3xl p-5 sm:p-6 shadow-md animate-in slide-in-from-top-2 duration-200 space-y-4"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded-2xl shrink-0 mt-0.5">
+                <AlertTriangle size={24} />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-bold text-rose-900 dark:text-rose-100 text-base">
+                    {stripeError.title}
+                  </h3>
+                  {stripeError.code && (
+                    <span className="px-2 py-0.5 rounded-md bg-rose-200/80 dark:bg-rose-900 text-rose-900 dark:text-rose-200 text-[11px] font-mono font-bold tracking-tight">
+                      {stripeError.code.toUpperCase()}{stripeError.declineCode ? `: ${stripeError.declineCode.toUpperCase()}` : ''}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-rose-800 dark:text-rose-200 leading-relaxed">
+                  {stripeError.explanation}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setStripeError(null)}
+              className="text-rose-400 hover:text-rose-700 dark:hover:text-rose-200 p-1.5 rounded-lg hover:bg-rose-100/50 dark:hover:bg-rose-900/40 transition-colors cursor-pointer shrink-0"
+              title="Dismiss error"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Actionable Troubleshooting Steps */}
+          {stripeError.troubleshootingSteps && stripeError.troubleshootingSteps.length > 0 && (
+            <div className="bg-white/80 dark:bg-slate-900/70 border border-rose-100 dark:border-rose-900/50 rounded-2xl p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-rose-900 dark:text-rose-300">
+                <HelpCircle size={14} className="text-rose-600 dark:text-rose-400" />
+                <span>Self-Service Troubleshooting Steps</span>
+              </div>
+              <ul className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300 pl-1">
+                {stripeError.troubleshootingSteps.map((step, idx) => (
+                  <li key={idx} className="flex items-start gap-2 leading-relaxed">
+                    <span className="w-4 h-4 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Action Row: Instant Retry + Technical Diagnostics Toggle */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                id="retry-payment-button"
+                onClick={handleRetryAction}
+                disabled={isRetrying || processingPlan !== null}
+                className="py-2.5 px-4 rounded-xl font-bold bg-rose-600 hover:bg-rose-700 text-white transition-all flex items-center gap-2 text-xs shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isRetrying ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Retrying Transaction...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={14} />
+                    <span>
+                      Retry {stripeError.retryKind === 'verify' ? 'Verification' : stripeError.retryKind === 'portal' ? 'Portal Launch' : 'Payment'}
+                    </span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                className="py-2.5 px-3 rounded-xl border border-rose-200 dark:border-rose-800/80 hover:bg-rose-100/50 dark:hover:bg-rose-900/30 text-rose-800 dark:text-rose-200 font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Info size={14} />
+                <span>{showDiagnostics ? 'Hide Error Diagnostics' : 'Show Error Diagnostics'}</span>
+                {showDiagnostics ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            </div>
+
+            <span className="text-[11px] text-rose-500/80 dark:text-rose-400/80 font-mono">
+              Logged at {stripeError.timestamp}
+            </span>
+          </div>
+
+          {/* Expandable Technical Diagnostics Accordion */}
+          {showDiagnostics && (
+            <div className="bg-slate-900 text-slate-100 rounded-2xl p-4 space-y-3 text-xs font-mono border border-slate-800 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-[11px] text-slate-400 font-semibold">Technical Stripe Payload</span>
+                <button
+                  type="button"
+                  onClick={handleCopyDiagnostics}
+                  className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  {copiedDiagnostics ? <CheckCheck size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                  <span>{copiedDiagnostics ? 'Copied Diagnostics!' : 'Copy Diagnostics'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="bg-slate-800/60 p-2 rounded-lg">
+                  <span className="text-slate-400 block text-[10px]">Stripe Code</span>
+                  <span className="text-rose-300 font-semibold">{stripeError.code || 'N/A'}</span>
+                </div>
+                <div className="bg-slate-800/60 p-2 rounded-lg">
+                  <span className="text-slate-400 block text-[10px]">Decline Code</span>
+                  <span className="text-amber-300 font-semibold">{stripeError.declineCode || 'N/A'}</span>
+                </div>
+                <div className="bg-slate-800/60 p-2 rounded-lg">
+                  <span className="text-slate-400 block text-[10px]">Error Type</span>
+                  <span className="text-slate-200">{stripeError.type || 'Standard'}</span>
+                </div>
+                <div className="bg-slate-800/60 p-2 rounded-lg">
+                  <span className="text-slate-400 block text-[10px]">Param / Target</span>
+                  <span className="text-slate-200">{stripeError.param || 'N/A'}</span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950/70 p-2.5 rounded-lg border border-slate-800/70 text-[11px] text-slate-300 break-all">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold mb-0.5">Raw Stripe Message</span>
+                {stripeError.rawMessage}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notification Toast (Success / General Info) */}
       {notification && (
         <div className={`p-4 rounded-xl flex items-start gap-3 border ${
           notification.type === 'success' 
             ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-200'
-            : notification.type === 'error'
-            ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60 text-rose-800 dark:text-rose-200'
             : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/60 text-blue-800 dark:text-blue-200'
         }`}>
           {notification.type === 'success' ? (
             <CheckCircle2 className="shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" size={20} />
           ) : (
-            <AlertCircle className="shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" size={20} />
+            <Info className="shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" size={20} />
           )}
           <div className="flex-1 text-sm font-medium leading-relaxed">
             {notification.message}
@@ -515,7 +943,7 @@ export default function BillingPage({
 
           <button
             onClick={() => handleCheckout('per_report', creditQuantity)}
-            disabled={processingPlan !== null}
+            disabled={processingPlan !== null || isRetrying}
             className="w-full py-3.5 px-6 rounded-2xl font-bold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
           >
             {processingPlan === `per_report_${creditQuantity}` ? (
@@ -611,7 +1039,7 @@ export default function BillingPage({
                 <button
                   type="button"
                   onClick={handleOpenPortal}
-                  disabled={loadingPortal}
+                  disabled={loadingPortal || isRetrying}
                   className="w-full py-3 px-4 rounded-2xl font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer shadow-xs"
                 >
                   {loadingPortal ? (
@@ -625,7 +1053,7 @@ export default function BillingPage({
             ) : (
               <button
                 onClick={() => handleCheckout('monthly_clinic')}
-                disabled={processingPlan !== null}
+                disabled={processingPlan !== null || isRetrying}
                 className="w-full py-4 px-6 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 cursor-pointer disabled:opacity-50"
               >
                 {processingPlan === 'monthly_clinic' ? (

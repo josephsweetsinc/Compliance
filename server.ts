@@ -718,7 +718,14 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error('Create checkout session error:', err);
-      res.status(500).json({ error: err.message || 'Failed to initialize payment checkout session.' });
+      const statusCode = typeof err.statusCode === 'number' ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || 'Failed to initialize payment checkout session.',
+        code: err.code || (err.raw?.code ?? null),
+        declineCode: err.decline_code || (err.raw?.decline_code ?? null),
+        type: err.type || (err.raw?.type ?? null),
+        param: err.param || (err.raw?.param ?? null),
+      });
     }
   });
 
@@ -773,11 +780,19 @@ async function startServer() {
           verified: false,
           paymentStatus: session.payment_status,
           status: session.status,
+          planType: session.metadata?.planType,
+          credits: session.metadata?.credits,
         });
       }
     } catch (err: any) {
       console.error('Verify checkout session error:', err);
-      res.status(500).json({ error: err.message || 'Failed to verify checkout session.' });
+      const statusCode = typeof err.statusCode === 'number' ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || 'Failed to verify checkout session.',
+        code: err.code || (err.raw?.code ?? null),
+        declineCode: err.decline_code || (err.raw?.decline_code ?? null),
+        type: err.type || (err.raw?.type ?? null),
+      });
     }
   });
 
@@ -802,7 +817,13 @@ async function startServer() {
       res.json({ url: portalSession.url });
     } catch (err: any) {
       console.error('Portal session error:', err);
-      res.status(500).json({ error: err.message || 'Failed to create customer portal session.' });
+      const statusCode = typeof err.statusCode === 'number' ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || 'Failed to create customer portal session.',
+        code: err.code || (err.raw?.code ?? null),
+        declineCode: err.decline_code || (err.raw?.decline_code ?? null),
+        type: err.type || (err.raw?.type ?? null),
+      });
     }
   });
 
