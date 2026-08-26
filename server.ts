@@ -1,20 +1,29 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { Resend } from 'resend';
 import twilio from 'twilio';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
+import { initializeApp as initAdminApp, cert, applicationDefault, getApps, type App as AdminApp } from 'firebase-admin/app';
+import { getFirestore as getAdminFirestore, FieldValue, type Firestore as AdminFirestore } from 'firebase-admin/firestore';
+import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const firebaseAppletConfig = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf-8')
+);
+
 let resendClient: Resend | null = null;
 let twilioClient: any = null;
 let stripeClient: Stripe | null = null;
+let adminApp: AdminApp | null = null;
 
 function getStripe(): Stripe | null {
   let key = process.env.STRIPE_SECRET_KEY?.trim() || '';
@@ -28,6 +37,112 @@ function getStripe(): Stripe | null {
     stripeClient = new Stripe(key);
   }
   return stripeClient;
+}
+
+// Firebase Admin SDK - used to write trusted, server-verified data (billing
+// entitlements, credit balances) directly to Firestore, bypassing security
+// rules. This is the only code path allowed to grant paid access; the
+// client can only ever read these fields, never write them.
+function getAdminApp(): AdminApp {
+  if (adminApp) return adminApp;
+  if (getApps().length > 0) {
+    adminApp = getApps()[0]!;
+    return adminApp;
+  }
+
+  const projectId = firebaseAppletConfig.projectId;
+  const svcKeyRaw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim();
+
+  if (svcKeyRaw) {
+    const svcKey = JSON.parse(svcKeyRaw);
+    adminApp = initAdminApp({ credential: cert(svcKey), projectId });
+  } else {
+    // Falls back to Application Default Credentials, which is populated
+    // automatically when running on Google Cloud / Firebase infrastructure.
+    adminApp = initAdminApp({ credential: applicationDefault(), projectId });
+  }
+  return adminApp;
+}
+
+function getAdminDb(): AdminFirestore {
+  return getAdminFirestore(getAdminApp(), firebaseAppletConfig.firestoreDatabaseId);
+}
+
+async function verifyFirebaseIdToken(idToken: string): Promise<{ uid: string; email?: string } | null> {
+  try {
+    const decoded = await getAdminAuth(getAdminApp()).verifyIdToken(idToken);
+    return { uid: decoded.uid, email: decoded.email };
+  } catch (err: any) {
+    console.warn('Firebase ID token verification failed:', err.message);
+    return null;
+  }
+}
+
+// Grants report credits or an active subscription for a completed Stripe
+// Checkout Session. Safe to call more than once for the same session
+// (e.g. from both the post-checkout redirect and the webhook) - the
+// transaction below is idempotent per session id.
+async function grantEntitlementForCheckoutSession(db: AdminFirestore, session: Stripe.Checkout.Session) {
+  const userId = session.metadata?.userId;
+  if (!userId) {
+    console.warn(`[Stripe] Checkout session ${session.id} has no metadata.userId; cannot grant entitlement.`);
+    return { granted: false, reason: 'missing_user_id' };
+  }
+
+  const planType = session.metadata?.planType === 'monthly_clinic' ? 'monthly_clinic' : 'per_report';
+  const credits = Math.max(1, parseInt(session.metadata?.credits || '1', 10) || 1);
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+  const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+
+  const processedRef = db.collection('stripeProcessedSessions').doc(session.id);
+  const userRef = db.collection('users').doc(userId);
+
+  return db.runTransaction(async (tx) => {
+    const [processedSnap, userSnap] = await Promise.all([tx.get(processedRef), tx.get(userRef)]);
+
+    if (processedSnap.exists) {
+      return { granted: false, reason: 'already_processed' };
+    }
+    if (!userSnap.exists) {
+      console.warn(`[Stripe] User ${userId} not found while granting session ${session.id}.`);
+      return { granted: false, reason: 'user_not_found' };
+    }
+
+    const userData = userSnap.data() || {};
+    const updates: Record<string, any> = {};
+
+    if (planType === 'monthly_clinic') {
+      const periodEnd = new Date();
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      updates.subscriptionPlan = 'monthly_clinic';
+      updates.subscriptionStatus = 'active';
+      updates.subscriptionCurrentPeriodEnd = periodEnd.toISOString();
+    } else {
+      updates.reportCredits = FieldValue.increment(credits);
+      if (!userData.subscriptionPlan || userData.subscriptionPlan === 'free') {
+        updates.subscriptionPlan = 'per_report';
+      }
+    }
+    if (customerId) updates.stripeCustomerId = customerId;
+    if (subscriptionId) updates.stripeSubscriptionId = subscriptionId;
+
+    tx.set(processedRef, {
+      sessionId: session.id,
+      userId,
+      planType,
+      credits,
+      processedAt: new Date().toISOString(),
+    });
+    tx.update(userRef, updates);
+
+    return { granted: true, planType, credits };
+  });
+}
+
+async function findUserRefByStripeCustomerId(db: AdminFirestore, customerId: string) {
+  const snap = await db.collection('users').where('stripeCustomerId', '==', customerId).limit(1).get();
+  if (snap.empty) return null;
+  return snap.docs[0].ref;
 }
 
 function getResend() {
@@ -235,31 +350,48 @@ async function startServer() {
     };
   };
 
-  // Authentication Verification Middleware for API endpoints
-  const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // Authentication Verification Middleware for API endpoints.
+  // Verifies a real Firebase ID token (or the internal server-to-server key)
+  // and attaches the verified uid/email to the request - handlers must use
+  // req.uid rather than trusting a userId supplied in the request body,
+  // since a client can put any value it likes in a JSON body.
+  const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1]?.trim() : null;
     const internalApiKey = process.env.INTERNAL_API_KEY?.trim();
 
-    // 1. If an authorization header was passed by the client
-    if (token) {
-      // If matches internal API key or is a valid web app session/Firebase ID token
-      if ((internalApiKey && token === internalApiKey) || token.length >= 5) {
-        return next();
-      }
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Missing Authorization bearer token.' });
     }
 
-    // 2. Allow requests coming from the web app client interface
-    if (!token && !internalApiKey) {
+    if (internalApiKey && token === internalApiKey) {
+      (req as any).isInternal = true;
       return next();
     }
 
-    // Proceed for valid app session requests
+    const decoded = await verifyFirebaseIdToken(token);
+    if (!decoded) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired authentication token.' });
+    }
+
+    (req as any).uid = decoded.uid;
+    (req as any).userEmail = decoded.email;
     next();
   };
 
+  // Stripe calls the webhook directly with no user session (it authenticates
+  // via the webhook signature instead), and the pricing config is public,
+  // non-sensitive data - both are exempt from requireAuth.
+  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config']);
+  const requireAuthUnlessPublic = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (PUBLIC_API_PATHS.has(req.path)) {
+      return next();
+    }
+    return requireAuth(req, res, next);
+  };
+
   // Apply rate limiter and auth verification to all /api endpoints
-  app.use('/api', apiRateLimiter(30, 60 * 1000), requireAuth);
+  app.use('/api', apiRateLimiter(30, 60 * 1000), requireAuthUnlessPublic);
 
   // API routes
   app.post("/api/send-notification", async (req, res) => {
@@ -620,12 +752,17 @@ async function startServer() {
     });
   });
 
-  app.post("/api/billing/create-checkout-session", async (req, res) => {
+  app.post("/api/billing/create-checkout-session", async (req: any, res) => {
     try {
-      const { planType, quantity = 1, userId, userEmail, clinicName } = req.body;
+      const { planType, quantity = 1, clinicName } = req.body;
+      // userId/userEmail come from the verified ID token, never from the
+      // request body - otherwise a client could request a checkout session
+      // (and later have it verified) under someone else's account.
+      const userId = req.uid;
+      const userEmail = req.userEmail;
 
       if (!userId || !userEmail) {
-        return res.status(400).json({ error: "User identification (userId, userEmail) is required." });
+        return res.status(401).json({ error: "A verified, email-bearing account is required to start checkout." });
       }
 
       const appUrl = getAppUrl(req);
@@ -723,51 +860,63 @@ async function startServer() {
     }
   });
 
-  app.post("/api/billing/verify-session", async (req, res) => {
+  // Verifies a completed Checkout Session directly with Stripe and grants the
+  // corresponding entitlement server-side via the Admin SDK. This is what
+  // actually unlocks paid access - the client only ever displays the result,
+  // it never writes reportCredits/subscriptionPlan/subscriptionStatus itself.
+  app.post("/api/billing/verify-session", async (req: any, res) => {
     try {
-      const { sessionId, userId } = req.body;
+      const { sessionId } = req.body;
+      const userId = req.uid;
 
       if (!sessionId) {
         return res.status(400).json({ error: "Session ID is required." });
       }
-
-      // Check if simulated session
-      if (sessionId.startsWith('sim_session_')) {
-        return res.json({
-          verified: true,
-          simulated: true,
-          status: 'complete',
-          customerEmail: req.body.userEmail || '',
-        });
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required." });
       }
 
       const stripe = getStripe();
+      const db = getAdminDb();
+
       if (!stripe) {
-        return res.json({
-          verified: true,
-          simulated: true,
-          status: 'complete',
-        });
+        // Stripe isn't configured in this environment (local dev/preview
+        // only - this path is unreachable once live keys are set, so it
+        // cannot be used to get free access in production). Grant directly
+        // from the request under the caller's own verified uid so the UI
+        // can still be exercised end-to-end without real payments.
+        const { planType, quantity = 1 } = req.body;
+        const session = {
+          id: sessionId,
+          metadata: {
+            userId,
+            planType: planType === 'monthly_clinic' ? 'monthly_clinic' : 'per_report',
+            credits: String(Math.max(1, parseInt(quantity, 10) || 1)),
+          },
+        } as unknown as Stripe.Checkout.Session;
+        const result = await grantEntitlementForCheckoutSession(db, session);
+        const userSnap = await db.collection('users').doc(userId).get();
+        return res.json({ verified: true, simulated: true, granted: result.granted, profile: userSnap.data() });
       }
 
       const session = await stripe.checkout.sessions.retrieve(sessionId, {
         expand: ['customer', 'subscription'],
       });
 
+      if (session.metadata?.userId && session.metadata.userId !== userId) {
+        return res.status(403).json({ error: "This checkout session does not belong to your account." });
+      }
+
       if (session.payment_status === 'paid' || session.status === 'complete') {
-        const planType = session.metadata?.planType || 'per_report';
-        const credits = parseInt(session.metadata?.credits || '1', 10);
-        const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
-        const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+        const result = await grantEntitlementForCheckoutSession(db, session);
+        const userSnap = await db.collection('users').doc(userId).get();
 
         return res.json({
           verified: true,
+          granted: result.granted,
           paymentStatus: session.payment_status,
-          planType,
-          credits,
-          customerId,
-          subscriptionId,
           amountTotal: session.amount_total ? session.amount_total / 100 : 0,
+          profile: userSnap.data(),
         });
       } else {
         return res.json({
@@ -782,11 +931,21 @@ async function startServer() {
     }
   });
 
-  app.post("/api/billing/create-portal-session", async (req, res) => {
+  app.post("/api/billing/create-portal-session", async (req: any, res) => {
     try {
-      const { customerId } = req.body;
       const stripe = getStripe();
       const appUrl = getAppUrl(req);
+      const userId = req.uid;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
+
+      // Look up the customer ID from the trusted server record rather than
+      // trusting one supplied by the client, which could name any customer.
+      const db = getAdminDb();
+      const userSnap = await db.collection('users').doc(userId).get();
+      const customerId = userSnap.data()?.stripeCustomerId;
 
       if (!stripe || !customerId) {
         return res.json({
@@ -807,6 +966,58 @@ async function startServer() {
     }
   });
 
+  // Atomically consumes report credits for a batch of uploads about to be
+  // processed. This is the only path that may decrement reportCredits - it
+  // runs entirely server-side via the Admin SDK so it can't be bypassed by
+  // editing client requests or calling Firestore directly (security rules
+  // deny client writes to this field).
+  app.post("/api/reports/consume-credits", async (req: any, res) => {
+    try {
+      const userId = req.uid;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required." });
+      }
+
+      const count = Math.max(1, parseInt(req.body?.count, 10) || 1);
+      const db = getAdminDb();
+      const userRef = db.collection('users').doc(userId);
+
+      const result = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        if (!snap.exists) {
+          throw new Error('User profile not found.');
+        }
+        const data = snap.data() || {};
+        const isUnlimited = data.subscriptionPlan === 'monthly_clinic' && data.subscriptionStatus === 'active';
+        if (isUnlimited) {
+          return { success: true, unlimited: true, reportCredits: data.reportCredits ?? 0 };
+        }
+
+        const currentCredits = data.reportCredits ?? 0;
+        if (currentCredits < count) {
+          return { success: false, unlimited: false, reportCredits: currentCredits };
+        }
+
+        const remaining = currentCredits - count;
+        tx.update(userRef, { reportCredits: remaining });
+        return { success: true, unlimited: false, reportCredits: remaining };
+      });
+
+      if (!result.success) {
+        return res.status(402).json({
+          success: false,
+          error: 'Insufficient report credits.',
+          reportCredits: result.reportCredits,
+        });
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      console.error('Consume credits error:', err);
+      res.status(500).json({ error: err.message || 'Failed to update report credit balance.' });
+    }
+  });
+
   app.post("/api/billing/webhook", async (req: any, res) => {
     const stripe = getStripe();
     const sig = req.headers['stripe-signature'];
@@ -816,48 +1027,77 @@ async function startServer() {
       return res.status(200).json({ received: true, simulated: true });
     }
 
-    let event: Stripe.Event;
+    // Signature verification is mandatory once Stripe is configured - an
+    // unverified body would let anyone POST forged events (e.g. a fake
+    // "subscription active" update) directly to this endpoint.
+    if (!webhookSecret) {
+      console.error('[Stripe Webhook] STRIPE_WEBHOOK_SECRET is not configured; rejecting webhook request.');
+      return res.status(500).send('Webhook Error: STRIPE_WEBHOOK_SECRET is not configured on the server.');
+    }
+    if (!sig || !req.rawBody) {
+      return res.status(400).send('Webhook Error: Missing signature or raw request body.');
+    }
 
+    let event: Stripe.Event;
     try {
-      if (webhookSecret && sig && req.rawBody) {
-        event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
-      } else {
-        event = req.body;
-      }
+      event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
     } catch (err: any) {
       console.error(`⚠️ Webhook signature verification failed:`, err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Handle supported Stripe events
-    switch (event.type) {
-      case 'checkout.session.completed': {
-        const session = event.data.object as Stripe.Checkout.Session;
-        console.log(`[Stripe Webhook] Checkout session completed: ${session.id} for user ${session.metadata?.userId}`);
-        break;
+    const db = getAdminDb();
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object as Stripe.Checkout.Session;
+          const result = await grantEntitlementForCheckoutSession(db, session);
+          console.log(`[Stripe Webhook] Checkout session completed: ${session.id} -> ${JSON.stringify(result)}`);
+          break;
+        }
+        case 'customer.subscription.updated': {
+          const subscription = event.data.object as Stripe.Subscription;
+          const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+          const userRef = customerId ? await findUserRefByStripeCustomerId(db, customerId) : null;
+          if (userRef) {
+            const isActive = subscription.status === 'active' || subscription.status === 'trialing';
+            const periodEndSec = (subscription as any).current_period_end;
+            await userRef.update({
+              subscriptionStatus: isActive ? 'active' : (subscription.status === 'canceled' ? 'canceled' : 'inactive'),
+              ...(periodEndSec ? { subscriptionCurrentPeriodEnd: new Date(periodEndSec * 1000).toISOString() } : {}),
+            });
+          }
+          console.log(`[Stripe Webhook] Subscription updated: ${subscription.id} status=${subscription.status}`);
+          break;
+        }
+        case 'customer.subscription.deleted': {
+          const subscription = event.data.object as Stripe.Subscription;
+          const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+          const userRef = customerId ? await findUserRefByStripeCustomerId(db, customerId) : null;
+          if (userRef) {
+            await userRef.update({ subscriptionStatus: 'canceled' });
+          }
+          console.log(`[Stripe Webhook] Subscription deleted: ${subscription.id}`);
+          break;
+        }
+        case 'invoice.payment_succeeded': {
+          const invoice = event.data.object as Stripe.Invoice;
+          console.log(`[Stripe Webhook] Invoice payment succeeded: ${invoice.id}`);
+          break;
+        }
+        case 'invoice.payment_failed': {
+          const invoice = event.data.object as Stripe.Invoice;
+          console.warn(`[Stripe Webhook] Invoice payment failed: ${invoice.id}`);
+          break;
+        }
+        default:
+          console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
       }
-      case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log(`[Stripe Webhook] Subscription deleted: ${subscription.id}`);
-        break;
-      }
-      case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
-        console.log(`[Stripe Webhook] Subscription updated: ${subscription.id} status=${subscription.status}`);
-        break;
-      }
-      case 'invoice.payment_succeeded': {
-        const invoice = event.data.object as Stripe.Invoice;
-        console.log(`[Stripe Webhook] Invoice payment succeeded: ${invoice.id}`);
-        break;
-      }
-      case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice;
-        console.warn(`[Stripe Webhook] Invoice payment failed: ${invoice.id}`);
-        break;
-      }
-      default:
-        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+    } catch (err: any) {
+      console.error(`[Stripe Webhook] Error handling event ${event.type}:`, err);
+      // Still ack the event so Stripe doesn't retry indefinitely on a
+      // permanent error; the failure is logged for manual follow-up.
     }
 
     res.json({ received: true });

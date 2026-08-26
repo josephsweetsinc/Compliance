@@ -49,6 +49,33 @@ service cloud.firestore {
              (!('stripeSubscriptionId' in data) || (data.stripeSubscriptionId is string && data.stripeSubscriptionId.size() <= 256));
     }
 
+    // Billing/entitlement fields are only ever written by the trusted server
+    // (Firebase Admin SDK, which bypasses these rules entirely) in response to
+    // a verified Stripe payment or webhook event. The client may never set or
+    // change them directly - doing so would let a user grant themselves free
+    // credits or an active subscription without paying.
+    function billingFieldsUnchanged() {
+      let before = existing();
+      let after = incoming();
+      return after.get('subscriptionPlan', 'free') == before.get('subscriptionPlan', 'free') &&
+             after.get('subscriptionStatus', 'inactive') == before.get('subscriptionStatus', 'inactive') &&
+             after.get('subscriptionCurrentPeriodEnd', null) == before.get('subscriptionCurrentPeriodEnd', null) &&
+             after.get('reportCredits', 0) == before.get('reportCredits', 0) &&
+             after.get('stripeCustomerId', null) == before.get('stripeCustomerId', null) &&
+             after.get('stripeSubscriptionId', null) == before.get('stripeSubscriptionId', null);
+    }
+
+    // On initial profile creation, only the default trial state may be set -
+    // never an arbitrary paid plan or credit balance.
+    function billingFieldsAreDefaults(data) {
+      return data.get('subscriptionPlan', 'free') == 'free' &&
+             data.get('subscriptionStatus', 'trial') == 'trial' &&
+             !('subscriptionCurrentPeriodEnd' in data) &&
+             data.get('reportCredits', 0) <= 1 &&
+             !('stripeCustomerId' in data) &&
+             !('stripeSubscriptionId' in data);
+    }
+
     function isValidReport(data) {
       return data.keys().hasAll(['id', 'clinicId', 'patientName', 'metrics', 'status', 'createdAt']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
@@ -68,11 +95,12 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow create: if isOwner(userId) && isValidUser(incoming()) && billingFieldsAreDefaults(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) &&
                        incoming().uid == existing().uid &&
                        incoming().email == existing().email &&
-                       incoming().createdAt == existing().createdAt;
+                       incoming().createdAt == existing().createdAt &&
+                       billingFieldsUnchanged();
     }
 
     match /reports/{reportId} {

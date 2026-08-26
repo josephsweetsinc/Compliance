@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useDropzone, FileRejection } from 'react-dropzone';
 import { db, auth } from '../lib/firebase';
-import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { UserProfile, ComplianceMetrics, ComplianceReport } from '../types';
 import { extractTextFromPdf } from '../services/pdfService';
 import { extractComplianceMetrics } from '../services/geminiService';
@@ -165,10 +165,37 @@ export default function UploadPage({
 
     if (indicesToProcess.length === 0) return;
 
-    // Check credits/subscription
+    // Reserve credits for this batch. This is the authoritative,
+    // server-side check - it atomically decrements reportCredits via the
+    // Admin SDK so it can't be skipped or tampered with from the client.
+    // (Client-side Firestore writes to reportCredits are rejected by
+    // security rules.)
     if (!isUnlimited) {
-      if (availableCredits < indicesToProcess.length) {
-        setShowCreditModal(true);
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) {
+          setError('You must be signed in to process reports.');
+          return;
+        }
+        const res = await fetch('/api/reports/consume-credits', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ count: indicesToProcess.length }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          setShowCreditModal(true);
+          return;
+        }
+        if (setProfile) {
+          setProfile({ ...profile, reportCredits: data.reportCredits });
+        }
+      } catch (creditErr) {
+        console.error('Error checking report credits:', creditErr);
+        setError('Unable to verify your report credit balance. Please try again.');
         return;
       }
     }
@@ -246,17 +273,16 @@ export default function UploadPage({
         await setDoc(newDocRef, reportData);
         reportIds.push(newDocRef.id);
         
-        const authToken = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
-
         if (profile.email && profile.autoEmailEnabled !== false) {
           sendSummaryNotificationToUser(reportData, profile.email)
             .catch(err => console.error('Automated operator email summary error:', err));
         }
 
-        if (notificationSettings.enabled && notificationSettings.email) {
+        if (notificationSettings.enabled && notificationSettings.email && auth.currentUser) {
+          const authToken = await auth.currentUser.getIdToken();
           fetch('/api/send-notification', {
             method: 'POST',
-            headers: { 
+            headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${authToken}`
             },
@@ -297,19 +323,8 @@ export default function UploadPage({
       }
     }
 
-    // Deduct credits for successfully processed reports (if on pay-per-report plan)
-    if (!isUnlimited && reportIds.length > 0) {
-      try {
-        const userRef = doc(db, 'users', profile.uid);
-        const remainingCredits = Math.max(0, availableCredits - reportIds.length);
-        await updateDoc(userRef, { reportCredits: remainingCredits });
-        if (setProfile) {
-          setProfile({ ...profile, reportCredits: remainingCredits });
-        }
-      } catch (deductErr) {
-        console.error('Error updating user credits in Firestore:', deductErr);
-      }
-    }
+    // Credits for this batch were already reserved server-side above, before
+    // processing began - nothing left to deduct here.
 
     setLoading(false);
     setCurrentFileIndex(null);
