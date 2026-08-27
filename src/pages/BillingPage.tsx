@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { UserProfile } from '../types';
-import { db } from '../lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { auth } from '../lib/firebase';
 import { 
   CreditCard, 
   Check, 
@@ -256,20 +255,28 @@ export default function BillingPage({
     fetchConfig();
   }, []);
 
-  // Handle successful redirect back from Stripe checkout
+  // Handle successful redirect back from Stripe checkout. Verification and
+  // the resulting entitlement grant both happen server-side (see
+  // /api/billing/verify-session) - this only reads back the server's
+  // updated profile and displays it. The client never writes billing
+  // fields to Firestore directly.
   useEffect(() => {
     if (statusParam === 'success' && sessionId && profile?.uid) {
       async function completeCheckout() {
         setStripeError(null);
         try {
+          const idToken = await auth.currentUser?.getIdToken();
+          if (!idToken) {
+            throw new Error('You must be signed in to verify a payment.');
+          }
+
           const res = await fetch('/api/billing/verify-session', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              sessionId, 
-              userId: profile.uid,
-              userEmail: profile.email || '',
-            }),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ sessionId }),
           });
 
           const data = await res.json().catch(() => ({}));
@@ -287,49 +294,25 @@ export default function BillingPage({
             return;
           }
 
-          if (data.verified) {
-            const userRef = doc(db, 'users', profile.uid);
+          if (data.verified && data.profile) {
+            setProfile({ ...profile, ...data.profile });
 
-            if (planParam === 'monthly_clinic' || data.planType === 'monthly_clinic') {
-              const nextMonth = new Date();
-              nextMonth.setMonth(nextMonth.getMonth() + 1);
-
-              const updates: Partial<UserProfile> = {
-                subscriptionPlan: 'monthly_clinic',
-                subscriptionStatus: 'active',
-                subscriptionCurrentPeriodEnd: nextMonth.toISOString(),
-              };
-              const custId = data.customerId || profile.stripeCustomerId;
-              if (custId) updates.stripeCustomerId = custId;
-              const subId = data.subscriptionId || profile.stripeSubscriptionId;
-              if (subId) updates.stripeSubscriptionId = subId;
-
-              await updateDoc(userRef, updates);
-              setProfile({ ...profile, ...updates });
+            if (planParam === 'monthly_clinic' || data.profile.subscriptionPlan === 'monthly_clinic') {
               setNotification({
                 type: 'success',
                 message: '🎉 Congratulations! Your $250/month Clinic & Fleet Unlimited Plan is now active. You have unlimited report processing.',
               });
             } else {
-              // Per-report credit purchase
-              const creditsToAdd = parseInt(creditsParam || String(data.credits || 1), 10);
-              const currentCredits = profile.reportCredits ?? 0;
-              const newCreditCount = currentCredits + creditsToAdd;
-
-              const updates: Partial<UserProfile> = {
-                subscriptionPlan: profile.subscriptionPlan || 'per_report',
-                reportCredits: newCreditCount,
-              };
-              const custId = data.customerId || profile.stripeCustomerId;
-              if (custId) updates.stripeCustomerId = custId;
-
-              await updateDoc(userRef, updates);
-              setProfile({ ...profile, ...updates });
               setNotification({
                 type: 'success',
-                message: `🎉 Payment successful! Added ${creditsToAdd} report credit${creditsToAdd > 1 ? 's' : ''} to your account. Available balance: ${newCreditCount} credits.`,
+                message: `🎉 Payment successful! Available balance: ${data.profile.reportCredits ?? 0} credits.`,
               });
             }
+          } else if (data.verified) {
+            setNotification({
+              type: 'info',
+              message: 'Payment confirmed. Your account balance will update shortly.',
+            });
           } else {
             console.warn('Session verification returned not verified:', data);
             setNotification({
@@ -370,14 +353,20 @@ export default function BillingPage({
     setStripeError(null);
 
     try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('You must be signed in to start checkout.');
+      }
+
       const res = await fetch('/api/billing/create-checkout-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           planType,
           quantity,
-          userId: profile?.uid || 'user_' + Date.now(),
-          userEmail: profile?.email || 'operator@complyzzz.com',
           clinicName: profile?.clinicName || '',
         }),
       });
@@ -452,10 +441,17 @@ export default function BillingPage({
     setNotification(null);
     setStripeError(null);
     try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('You must be signed in to manage billing.');
+      }
+
       const res = await fetch('/api/billing/create-portal-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerId: profile.stripeCustomerId }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -496,14 +492,14 @@ export default function BillingPage({
         await handleCheckout(plan, qty);
       } else if (stripeError.retryKind === 'verify' && stripeError.retrySessionId) {
         // Re-verify session
+        const idToken = await auth.currentUser?.getIdToken();
         const res = await fetch('/api/billing/verify-session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: stripeError.retrySessionId,
-            userId: profile.uid,
-            userEmail: profile.email || '',
-          }),
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({ sessionId: stripeError.retrySessionId }),
         });
         const data = await res.json().catch(() => ({}));
         if (data.verified) {
@@ -557,14 +553,14 @@ export default function BillingPage({
     if (!checkoutModal?.sessionId || !profile?.uid) return;
     setVerifyingModalPayment(true);
     try {
+      const idToken = await auth.currentUser?.getIdToken();
       const res = await fetch('/api/billing/verify-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: checkoutModal.sessionId,
-          userId: profile.uid,
-          userEmail: profile.email || '',
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({ sessionId: checkoutModal.sessionId }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.verified) {
