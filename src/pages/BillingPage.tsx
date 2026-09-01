@@ -294,25 +294,35 @@ export default function BillingPage({
             return;
           }
 
-          if (data.verified && data.profile) {
-            setProfile({ ...profile, ...data.profile });
+          if (data.verified) {
+            const returnedCredits = typeof data.profile?.reportCredits === 'number'
+              ? data.profile.reportCredits
+              : ((profile?.reportCredits ?? 0) + (data.credits || parseInt(creditsParam || '1', 10)));
+            const returnedPlan = data.profile?.subscriptionPlan || (planParam === 'monthly_clinic' ? 'monthly_clinic' : 'per_report');
+            const returnedStatus = data.profile?.subscriptionStatus || 'active';
 
-            if (planParam === 'monthly_clinic' || data.profile.subscriptionPlan === 'monthly_clinic') {
+            const updatedProfile: UserProfile = {
+              ...profile,
+              ...(data.profile || {}),
+              reportCredits: returnedPlan === 'monthly_clinic' ? (data.profile?.reportCredits ?? profile?.reportCredits ?? 0) : returnedCredits,
+              subscriptionPlan: returnedPlan,
+              subscriptionStatus: returnedStatus,
+            };
+
+            setProfile(updatedProfile);
+
+            if (planParam === 'monthly_clinic' || returnedPlan === 'monthly_clinic') {
               setNotification({
                 type: 'success',
                 message: '🎉 Congratulations! Your $250/month Clinic & Fleet Unlimited Plan is now active. You have unlimited report processing.',
               });
             } else {
+              const addedCredits = data.credits || parseInt(creditsParam || '1', 10);
               setNotification({
                 type: 'success',
-                message: `🎉 Payment successful! Available balance: ${data.profile.reportCredits ?? 0} credits.`,
+                message: `🎉 Payment successful! Added ${addedCredits} credit${addedCredits === 1 ? '' : 's'}. Available balance: ${updatedProfile.reportCredits ?? 0} credits.`,
               });
             }
-          } else if (data.verified) {
-            setNotification({
-              type: 'info',
-              message: 'Payment confirmed. Your account balance will update shortly.',
-            });
           } else {
             console.warn('Session verification returned not verified:', data);
             setNotification({
