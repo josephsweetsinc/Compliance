@@ -94,64 +94,67 @@ async function grantEntitlementForCheckoutSession(db: AdminFirestore, session: S
   const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
   const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
 
-  try {
-    const processedRef = db.collection('stripeProcessedSessions').doc(session.id);
-    const userRef = db.collection('users').doc(userId);
+  // Note: this deliberately does not catch-and-report-success on Firestore
+  // errors. A failed write must surface as a failure - silently claiming
+  // `granted: true` when nothing was written would let every credit/plan
+  // check downstream believe the customer is entitled when they aren't
+  // (this exact pattern was the cause of a prior free-access bypass).
+  const processedRef = db.collection('stripeProcessedSessions').doc(session.id);
+  const userRef = db.collection('users').doc(userId);
 
-    return await db.runTransaction(async (tx) => {
-      const [processedSnap, userSnap] = await Promise.all([tx.get(processedRef), tx.get(userRef)]);
+  return db.runTransaction(async (tx) => {
+    const [processedSnap, userSnap] = await Promise.all([tx.get(processedRef), tx.get(userRef)]);
 
-      if (processedSnap.exists) {
-        return { granted: true, planType, credits, reason: 'already_processed' };
+    if (processedSnap.exists) {
+      return { granted: true, planType, credits, reason: 'already_processed' };
+    }
+
+    const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+    const updates: Record<string, any> = {};
+
+    if (planType === 'monthly_clinic') {
+      const periodEnd = new Date();
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      updates.subscriptionPlan = 'monthly_clinic';
+      updates.subscriptionStatus = 'active';
+      updates.subscriptionCurrentPeriodEnd = periodEnd.toISOString();
+    } else {
+      updates.reportCredits = FieldValue.increment(credits);
+      if (!userData.subscriptionPlan || userData.subscriptionPlan === 'free') {
+        updates.subscriptionPlan = 'per_report';
       }
+    }
+    if (customerId) updates.stripeCustomerId = customerId;
+    if (subscriptionId) updates.stripeSubscriptionId = subscriptionId;
 
-      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
-      const updates: Record<string, any> = {};
-
-      if (planType === 'monthly_clinic') {
-        const periodEnd = new Date();
-        periodEnd.setMonth(periodEnd.getMonth() + 1);
-        updates.subscriptionPlan = 'monthly_clinic';
-        updates.subscriptionStatus = 'active';
-        updates.subscriptionCurrentPeriodEnd = periodEnd.toISOString();
-      } else {
-        updates.reportCredits = FieldValue.increment(credits);
-        if (!userData.subscriptionPlan || userData.subscriptionPlan === 'free') {
-          updates.subscriptionPlan = 'per_report';
-        }
-      }
-      if (customerId) updates.stripeCustomerId = customerId;
-      if (subscriptionId) updates.stripeSubscriptionId = subscriptionId;
-
-      tx.set(processedRef, {
-        sessionId: session.id,
-        userId,
-        planType,
-        credits,
-        processedAt: new Date().toISOString(),
-      });
-      
-      if (userSnap.exists) {
-        tx.update(userRef, updates);
-      } else {
-        tx.set(userRef, {
-          uid: userId,
-          email: session.customer_email || session.metadata?.userEmail || '',
-          clinicName: session.metadata?.clinicName || 'Personal / Operator',
-          createdAt: new Date().toISOString(),
-          reportCredits: credits,
-          subscriptionPlan: planType,
-          subscriptionStatus: 'active',
-          ...updates,
-        }, { merge: true });
-      }
-
-      return { granted: true, planType, credits };
+    tx.set(processedRef, {
+      sessionId: session.id,
+      userId,
+      planType,
+      credits,
+      processedAt: new Date().toISOString(),
     });
-  } catch (err: any) {
-    console.warn(`[Stripe Entitlement Warning] Firestore write returned: ${err.message}. Acknowledging verified Stripe entitlement.`);
-    return { granted: true, planType, credits, fallback: true, warning: err.message };
-  }
+
+    if (userSnap.exists) {
+      tx.update(userRef, updates);
+    } else {
+      // The user's profile doc should already exist by the time they can
+      // reach checkout, but guard against a race by creating it rather
+      // than dropping the entitlement on the floor.
+      tx.set(userRef, {
+        uid: userId,
+        email: session.customer_email || session.metadata?.userEmail || '',
+        clinicName: session.metadata?.clinicName || 'Personal / Operator',
+        createdAt: new Date().toISOString(),
+        reportCredits: credits,
+        subscriptionPlan: planType,
+        subscriptionStatus: 'active',
+        ...updates,
+      }, { merge: true });
+    }
+
+    return { granted: true, planType, credits };
+  });
 }
 
 async function findUserRefByStripeCustomerId(db: AdminFirestore, customerId: string) {
@@ -912,21 +915,12 @@ async function startServer() {
             credits: String(Math.max(1, parseInt(quantity, 10) || 1)),
           },
         } as unknown as Stripe.Checkout.Session;
+        // grantEntitlementForCheckoutSession throws on a genuine write
+        // failure - let that propagate to the outer catch below rather
+        // than reporting success for a grant that never happened.
         const result = await grantEntitlementForCheckoutSession(db, session);
-        let profileData = null;
-        try {
-          const userSnap = await db.collection('users').doc(userId).get();
-          profileData = userSnap.data();
-        } catch (e: any) {
-          console.warn('[Verify Session] Profile read fallback:', e.message);
-          profileData = {
-            uid: userId,
-            reportCredits: parseInt(quantity, 10) || 1,
-            subscriptionPlan: planType === 'monthly_clinic' ? 'monthly_clinic' : 'per_report',
-            subscriptionStatus: 'active',
-          };
-        }
-        return res.json({ verified: true, simulated: true, granted: result.granted, profile: profileData });
+        const userSnap = await db.collection('users').doc(userId).get();
+        return res.json({ verified: true, simulated: true, granted: result.granted, profile: userSnap.data() ?? null });
       }
 
       const session = await stripe.checkout.sessions.retrieve(sessionId, {
@@ -938,39 +932,17 @@ async function startServer() {
       }
 
       if (session.payment_status === 'paid' || session.status === 'complete') {
+        // Same as above: a failed grant must surface as an error, not a
+        // fabricated success with numbers that were never persisted.
         const result = await grantEntitlementForCheckoutSession(db, session);
-        let profileData = null;
-        try {
-          const userSnap = await db.collection('users').doc(userId).get();
-          if (userSnap.exists) {
-            profileData = userSnap.data();
-          }
-        } catch (e: any) {
-          console.warn('[Verify Session] Profile fetch notice:', e.message);
-        }
-
-        const sessionCredits = parseInt(session.metadata?.credits || '1', 10) || 1;
-        const sessionPlan = session.metadata?.planType === 'monthly_clinic' ? 'monthly_clinic' : 'per_report';
-
-        if (!profileData) {
-          profileData = {
-            uid: userId,
-            email: session.customer_email || session.metadata?.userEmail || req.userEmail || '',
-            reportCredits: sessionPlan === 'monthly_clinic' ? 0 : sessionCredits,
-            subscriptionPlan: sessionPlan,
-            subscriptionStatus: 'active',
-            stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id,
-          };
-        }
+        const userSnap = await db.collection('users').doc(userId).get();
 
         return res.json({
           verified: true,
           granted: result.granted,
           paymentStatus: session.payment_status,
           amountTotal: session.amount_total ? session.amount_total / 100 : 0,
-          profile: profileData,
-          planType: sessionPlan,
-          credits: sessionCredits,
+          profile: userSnap.exists ? userSnap.data() : null,
         });
       } else {
         return res.json({
@@ -1003,14 +975,9 @@ async function startServer() {
         return res.status(401).json({ error: "Authentication required." });
       }
 
-      let customerId: string | undefined;
-      try {
-        const db = getAdminDb();
-        const userSnap = await db.collection('users').doc(userId).get();
-        customerId = userSnap.data()?.stripeCustomerId;
-      } catch (dbErr: any) {
-        console.warn('[Portal Session] Could not fetch customerId from Firestore Admin DB:', dbErr.message);
-      }
+      const db = getAdminDb();
+      const userSnap = await db.collection('users').doc(userId).get();
+      const customerId: string | undefined = userSnap.data()?.stripeCustomerId;
 
       if (!stripe || !customerId) {
         return res.json({
@@ -1050,52 +1017,45 @@ async function startServer() {
       }
 
       const count = Math.max(1, parseInt(req.body?.count, 10) || 1);
-      
-      try {
-        const db = getAdminDb();
-        const userRef = db.collection('users').doc(userId);
 
-        const result = await db.runTransaction(async (tx) => {
-          const snap = await tx.get(userRef);
-          if (!snap.exists) {
-            return { success: true, unlimited: false, reportCredits: 0 };
-          }
-          const data = snap.data() || {};
-          const isUnlimited = data.subscriptionPlan === 'monthly_clinic' && data.subscriptionStatus === 'active';
-          if (isUnlimited) {
-            return { success: true, unlimited: true, reportCredits: data.reportCredits ?? 0 };
-          }
+      // This is the one gate standing between a user and free report
+      // processing - it must fail closed. If the Admin SDK can't reach
+      // Firestore (e.g. the service account lacks the Firestore IAM role),
+      // that has to come back as a real error, never as `success: true`.
+      const db = getAdminDb();
+      const userRef = db.collection('users').doc(userId);
 
-          const currentCredits = data.reportCredits ?? 0;
-          if (currentCredits < count) {
-            return { success: false, unlimited: false, reportCredits: currentCredits };
-          }
-
-          const remaining = Math.max(0, currentCredits - count);
-          tx.update(userRef, { reportCredits: remaining });
-          return { success: true, unlimited: false, reportCredits: remaining };
-        });
-
-        if (!result.success) {
-          return res.status(402).json({
-            success: false,
-            error: 'Insufficient report credits.',
-            reportCredits: result.reportCredits,
-            required: count,
-          });
+      const result = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        if (!snap.exists) {
+          return { success: false, unlimited: false, reportCredits: 0 };
+        }
+        const data = snap.data() || {};
+        const isUnlimited = data.subscriptionPlan === 'monthly_clinic' && data.subscriptionStatus === 'active';
+        if (isUnlimited) {
+          return { success: true, unlimited: true, reportCredits: data.reportCredits ?? 0 };
         }
 
-        return res.json(result);
-      } catch (dbErr: any) {
-        console.warn("[Consume Credits] Firestore Admin DB write encountered permission issue, allowing processing:", dbErr.message);
-        // Do not crash with 500 when Firestore IAM permissions are propagating or in dev/preview
-        return res.json({
-          success: true,
-          unlimited: false,
-          reportCredits: Math.max(0, (req.body?.currentCredits ?? 1) - count),
-          fallback: true
+        const currentCredits = data.reportCredits ?? 0;
+        if (currentCredits < count) {
+          return { success: false, unlimited: false, reportCredits: currentCredits };
+        }
+
+        const remaining = Math.max(0, currentCredits - count);
+        tx.update(userRef, { reportCredits: remaining });
+        return { success: true, unlimited: false, reportCredits: remaining };
+      });
+
+      if (!result.success) {
+        return res.status(402).json({
+          success: false,
+          error: 'Insufficient report credits.',
+          reportCredits: result.reportCredits,
+          required: count,
         });
       }
+
+      return res.json(result);
     } catch (err: any) {
       console.error('Consume credits error:', err);
       res.status(500).json({ error: err.message || 'Failed to update report credit balance.' });
