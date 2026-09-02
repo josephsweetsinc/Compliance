@@ -1,17 +1,18 @@
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  updateProfile
+  sendEmailVerification,
+  updateProfile,
+  User
 } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { UserProfile } from '../types';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -102,35 +103,37 @@ export const loginWithEmail = async (email: string, password: string) => {
 };
 
 export const registerWithEmail = async (
-  email: string, 
-  password: string, 
-  displayName: string,
-  clinicName?: string
+  email: string,
+  password: string,
+  displayName: string
 ) => {
   try {
     const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
     const user = result.user;
-    
+
     if (displayName.trim()) {
       await updateProfile(user, { displayName: displayName.trim() });
     }
 
-    // Initialize the user profile in Firestore
-    const newProfile: UserProfile = {
-      uid: user.uid,
-      email: user.email || email.trim(),
-      displayName: displayName.trim() || 'Driver / Operator',
-      clinicName: clinicName?.trim() || displayName.trim() || 'Personal Operator',
-      createdAt: new Date().toISOString(),
-      reportCredits: 1, // 1 free starter credit
-      subscriptionPlan: 'free',
-      subscriptionStatus: 'trial',
-    };
-
-    await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
+    // Unlike Google sign-in, a fresh email/password account starts
+    // unverified. Firestore security rules require a verified email for
+    // any access (see firestore.rules: isAuthenticated()), so the profile
+    // document is intentionally NOT created here - it's created by
+    // ProfileSetup (in App.tsx) once the user has verified their email,
+    // the same path Google sign-in already uses for new accounts.
+    await sendEmailVerification(user);
     return user;
   } catch (error) {
     console.error('Email registration error:', error);
+    throw error;
+  }
+};
+
+export const resendVerificationEmail = async (user: User) => {
+  try {
+    await sendEmailVerification(user);
+  } catch (error) {
+    console.error('Resend verification email error:', error);
     throw error;
   }
 };
