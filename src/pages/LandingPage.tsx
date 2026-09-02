@@ -1,6 +1,7 @@
 import React, { useState, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ThemeToggle } from '../components/ThemeToggle';
+import logoImg from '../assets/images/complyzzz_logo_1781018719318.png';
 import { 
   Activity, 
   CheckCircle2, 
@@ -145,7 +146,7 @@ export default function LandingPage() {
           {/* Brand Logo */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
             <img
-              src="/src/assets/images/complyzzz_logo_1781018719318.png"
+              src={logoImg}
               alt="ComplyZzz Sleep Compliance Logo"
               className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100 dark:border-slate-800"
               referrerPolicy="no-referrer"
@@ -252,6 +253,23 @@ export default function LandingPage() {
             >
               Frequently Asked Questions
             </a>
+            
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+              <button 
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); navigate('/login?mode=signin'); }}
+                className="w-full text-center py-2.5 text-sm font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-xl cursor-pointer"
+              >
+                Sign In
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); navigate('/login?mode=signup'); }}
+                className="w-full text-center py-2.5 text-sm font-bold text-white bg-blue-600 dark:bg-blue-500 rounded-xl shadow-md cursor-pointer"
+              >
+                Create Free Account
+              </button>
+            </div>
           </div>
         )}
       </nav>
@@ -1074,7 +1092,7 @@ export default function LandingPage() {
           <div className="space-y-4 md:col-span-2">
             <div className="flex items-center gap-3">
               <img
-                src="/src/assets/images/complyzzz_logo_1781018719318.png"
+                src={logoImg}
                 alt="ComplyZzz Logo"
                 className="w-8 h-8 object-contain rounded-lg border border-slate-800"
                 referrerPolicy="no-referrer"
