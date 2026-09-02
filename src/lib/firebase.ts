@@ -1,7 +1,17 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile
+} from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { UserProfile } from '../types';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -76,7 +86,60 @@ export const loginWithGoogle = async () => {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Google login error:', error);
+    throw error;
+  }
+};
+
+export const loginWithEmail = async (email: string, password: string) => {
+  try {
+    const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+    return result.user;
+  } catch (error) {
+    console.error('Email login error:', error);
+    throw error;
+  }
+};
+
+export const registerWithEmail = async (
+  email: string, 
+  password: string, 
+  displayName: string,
+  clinicName?: string
+) => {
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+    const user = result.user;
+    
+    if (displayName.trim()) {
+      await updateProfile(user, { displayName: displayName.trim() });
+    }
+
+    // Initialize the user profile in Firestore
+    const newProfile: UserProfile = {
+      uid: user.uid,
+      email: user.email || email.trim(),
+      displayName: displayName.trim() || 'Driver / Operator',
+      clinicName: clinicName?.trim() || displayName.trim() || 'Personal Operator',
+      createdAt: new Date().toISOString(),
+      reportCredits: 1, // 1 free starter credit
+      subscriptionPlan: 'free',
+      subscriptionStatus: 'trial',
+    };
+
+    await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
+    return user;
+  } catch (error) {
+    console.error('Email registration error:', error);
+    throw error;
+  }
+};
+
+export const resetPassword = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+  } catch (error) {
+    console.error('Password reset error:', error);
     throw error;
   }
 };
@@ -89,3 +152,4 @@ export const logout = async () => {
     throw error;
   }
 };
+

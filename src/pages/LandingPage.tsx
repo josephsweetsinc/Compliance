@@ -187,7 +187,7 @@ export default function LandingPage() {
             
             <button 
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/login?mode=signin')}
               className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-3 py-2 cursor-pointer"
             >
               Sign In
@@ -195,7 +195,7 @@ export default function LandingPage() {
             
             <button 
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/login?mode=signup')}
               className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-4 sm:px-5 py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all shadow-md shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer"
             >
               <span>Get Started</span>
@@ -293,7 +293,7 @@ export default function LandingPage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <button
                 type="button"
-                onClick={() => navigate('/login')}
+                onClick={() => navigate('/login?mode=signup')}
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white text-base sm:text-lg transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/25 hover:scale-[1.02] cursor-pointer"
               >
                 <span>Upload Report ($9 / Free Starter)</span>
@@ -898,7 +898,7 @@ export default function LandingPage() {
 
               <button
                 type="button"
-                onClick={() => navigate('/login')}
+                onClick={() => navigate('/login?mode=signup')}
                 className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-xs"
               >
                 Choose This Plan
@@ -1049,7 +1049,7 @@ export default function LandingPage() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
             <button
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/login?mode=signup')}
               className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-500 text-white text-base transition-all shadow-xl shadow-blue-500/30 flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Get Started Now ($9 / Free Starter)</span>
@@ -1058,7 +1058,7 @@ export default function LandingPage() {
 
             <button
               type="button"
-              onClick={() => navigate('/login')}
+              onClick={() => navigate('/login?mode=signin')}
               className="w-full sm:w-auto px-6 py-4 rounded-2xl font-bold bg-slate-800 hover:bg-slate-700 text-white text-base border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Examiner / Clinic Sign In</span>
