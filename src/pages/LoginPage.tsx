@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from '../lib/firebase';
-import { Mail, Lock, User, Building2, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff, KeyRound, Sparkles, ArrowLeft, Loader2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff, KeyRound, Sparkles, ArrowLeft, Loader2 } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 export default function LoginPage() {
@@ -14,7 +14,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [clinicName, setClinicName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -55,7 +54,7 @@ export default function LoginPage() {
         if (password.length < 6) {
           throw new Error('Password must be at least 6 characters long.');
         }
-        await registerWithEmail(email, password, displayName || 'Operator', clinicName || 'Personal Operator');
+        await registerWithEmail(email, password, displayName || 'Operator');
       } else if (mode === 'forgot') {
         if (!email.trim()) {
           throw new Error('Please enter your email address to receive password reset instructions.');
@@ -195,40 +194,22 @@ export default function LoginPage() {
         {/* Email & Password Authentication Form */}
         <form onSubmit={handleEmailAuth} className="space-y-3.5">
           {mode === 'signup' && (
-            <>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Full Name
-                </label>
-                <div className="relative">
-                  <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    required
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder:text-slate-400"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Full Name
+              </label>
+              <div className="relative">
+                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  required
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder:text-slate-400"
+                />
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Clinic / Employer / Fleet Name <span className="font-normal text-slate-400">(Optional)</span>
-                </label>
-                <div className="relative">
-                  <Building2 size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={clinicName}
-                    onChange={(e) => setClinicName(e.target.value)}
-                    placeholder="e.g. Falcon Express Fleet or Self"
-                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder:text-slate-400"
-                  />
-                </div>
-              </div>
-            </>
+            </div>
           )}
 
           <div>
