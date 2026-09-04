@@ -18,6 +18,7 @@ import HistoryPage from './pages/HistoryPage';
 import HelpPage from './pages/HelpPage';
 import BillingPage from './pages/BillingPage';
 import Analytics from './components/Analytics';
+import { BrandLogo } from './components/BrandLogo';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -105,15 +106,9 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
     <div className="min-h-screen bg-slate-50 dark:bg-[#0b0f19] text-slate-800 dark:text-slate-100 flex transition-colors duration-200">
       {/* Sidebar */}
       <aside className="w-64 bg-white dark:bg-[#0f172a] border-r border-slate-200 dark:border-slate-800/60 flex flex-col transition-colors duration-200">
-        <div className="p-5 flex items-center gap-3 border-b border-slate-100 dark:border-slate-800/60">
-          <img
-            src="/src/assets/images/complyzzz_logo_1781018719318.png"
-            alt="ComplyZzz Balloon Logo"
-            className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100 dark:border-slate-800 cursor-pointer"
-            referrerPolicy="no-referrer"
-            onClick={() => navigate('/dashboard')}
-          />
-          <span className="font-extrabold text-slate-950 dark:text-white text-xl tracking-tight cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/dashboard')}>ComplyZzz</span>
+        <div className="p-5 flex items-center gap-3 border-b border-slate-100 dark:border-slate-800/60 cursor-pointer" onClick={() => navigate('/dashboard')}>
+          <BrandLogo size="md" id="app-sidebar-logo" />
+          <span className="font-extrabold text-slate-950 dark:text-white text-xl tracking-tight hover:opacity-80 transition-opacity">ComplyZzz</span>
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
@@ -220,12 +215,7 @@ function ProfileSetup({ user, setProfile }: { user: User; setProfile: (p: UserPr
           <ThemeToggle />
         </div>
         <div className="flex justify-center mb-6">
-          <img
-            src="/src/assets/images/complyzzz_logo_1781018719318.png"
-            alt="ComplyZzz Logo"
-            className="w-16 h-16 object-contain rounded-2xl shadow-md border border-slate-100 dark:border-slate-800"
-            referrerPolicy="no-referrer"
-          />
+          <BrandLogo size="lg" id="profile-setup-logo" />
         </div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white text-center mb-2">ComplyZzz Setup</h1>
         <p className="text-slate-500 dark:text-slate-450 text-center text-sm mb-6 leading-relaxed">

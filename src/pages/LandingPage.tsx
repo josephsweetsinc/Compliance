@@ -1,7 +1,7 @@
 import React, { useState, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ThemeToggle } from '../components/ThemeToggle';
-import logoImg from '../assets/images/complyzzz_logo_1781018719318.png';
+import { BrandLogo } from '../components/BrandLogo';
 import { 
   Activity, 
   CheckCircle2, 
@@ -145,22 +145,7 @@ export default function LandingPage() {
           
           {/* Brand Logo */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
-            <img
-              src={logoImg}
-              alt="ComplyZzz Sleep Compliance Logo"
-              className="w-10 h-10 object-contain rounded-xl shadow-md border border-slate-100 dark:border-slate-800"
-              referrerPolicy="no-referrer"
-            />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-2xl tracking-tight text-slate-950 dark:text-white">
-                  Comply<span className="text-blue-600 dark:text-blue-400">Zzz</span>
-                </span>
-                <span className="hidden sm:inline-flex text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
-                  DOT & FAA Standards
-                </span>
-              </div>
-            </div>
+            <BrandLogo size="md" showText={true} subtitle="DOT & FAA Standards" id="landing-header-brand-logo" />
           </div>
 
           {/* Desktop Nav Links */}
@@ -1091,15 +1076,7 @@ export default function LandingPage() {
           
           <div className="space-y-4 md:col-span-2">
             <div className="flex items-center gap-3">
-              <img
-                src={logoImg}
-                alt="ComplyZzz Logo"
-                className="w-8 h-8 object-contain rounded-lg border border-slate-800"
-                referrerPolicy="no-referrer"
-              />
-              <span className="font-extrabold text-xl text-white tracking-tight">
-                Comply<span className="text-blue-500">Zzz</span>
-              </span>
+              <BrandLogo size="sm" showText={true} id="landing-footer-brand-logo" />
             </div>
             <p className="text-slate-400 max-w-sm leading-relaxed">
               Standardized CPAP compliance determination platform for commercial drivers, airline pilots, occupational health examiners, and motor carrier safety departments.

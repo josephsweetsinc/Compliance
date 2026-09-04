@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from '../lib/firebase';
 import { Mail, Lock, User, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff, KeyRound, Sparkles, ArrowLeft, Loader2 } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { BrandLogo } from '../components/BrandLogo';
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
@@ -100,12 +101,7 @@ export default function LoginPage() {
         {/* Header Branding */}
         <div className="flex justify-center mb-5">
           <Link to="/">
-            <img
-              src="/src/assets/images/complyzzz_logo_1781018719318.png"
-              alt="ComplyZzz Logo"
-              className="w-16 h-16 object-contain rounded-2xl shadow-md border border-slate-100 dark:border-slate-800 hover:scale-105 transition-transform"
-              referrerPolicy="no-referrer"
-            />
+            <BrandLogo size="lg" className="hover:scale-105 transition-transform" id="login-brand-logo" />
           </Link>
         </div>
         

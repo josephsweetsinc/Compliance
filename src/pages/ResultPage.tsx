@@ -714,9 +714,6 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
               </button>
             </div>
           </section>
-
-          {/* Statutory Compliance & Regulatory Medical Disclaimer */}
-          <LegalDisclaimer variant="report" showAttestation={true} id="result-page-legal-disclaimer" />
         </div>
 
         {/* Sidebar Info */}
@@ -958,6 +955,11 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
             </Link>
           </div>
         </div>
+      </div>
+
+      {/* Reusable Legal & Compliance Disclaimer placed at the bottom of the result view */}
+      <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800">
+        <LegalDisclaimer variant="report" showAttestation={true} id="result-page-legal-disclaimer" />
       </div>
     </div>
   );

@@ -13,12 +13,11 @@ import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const firebaseAppletConfig = JSON.parse(
-  fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf-8')
-);
+const rootDir = process.cwd();
+const configPath = path.join(rootDir, 'firebase-applet-config.json');
+const firebaseAppletConfig = fs.existsSync(configPath)
+  ? JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+  : {};
 
 let resendClient: Resend | null = null;
 let twilioClient: any = null;
@@ -405,7 +404,7 @@ async function startServer() {
   // Stripe calls the webhook directly with no user session (it authenticates
   // via the webhook signature instead), and the pricing config is public,
   // non-sensitive data - both are exempt from requireAuth.
-  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook']);
+  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook', '/health']);
   const requireAuthUnlessPublic = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (PUBLIC_API_PATHS.has(req.path)) {
       return next();
@@ -415,6 +414,11 @@ async function startServer() {
 
   // Apply rate limiter and auth verification to all /api endpoints
   app.use('/api', apiRateLimiter(30, 60 * 1000), requireAuthUnlessPublic);
+
+  // Health check endpoint for dev server, container ingress, and health monitors
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
   // API routes
   app.post("/api/send-notification", async (req, res) => {
