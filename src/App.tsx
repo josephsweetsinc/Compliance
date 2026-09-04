@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, logout, resendVerificationEmail } from './lib/firebase';
+import { auth, logout } from './lib/firebase';
 import { UserProfile } from './types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, MailCheck, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles } from 'lucide-react';
 import { ThemeToggle } from './components/ThemeToggle';
 
 // Pages
@@ -23,10 +23,6 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  // Google accounts always arrive pre-verified; only email/password
-  // accounts can be unverified. Firestore rules require a verified email
-  // for any access, so an unverified user must never hit Firestore.
-  const [needsVerification, setNeedsVerification] = useState(false);
 
   useEffect(() => {
     // Immediate early-theme detection
@@ -53,27 +49,14 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        if (!user.emailVerified) {
-          setNeedsVerification(true);
-          setProfile(null);
-        } else {
-          setNeedsVerification(false);
-          await loadProfile(user);
-        }
+        await loadProfile(user);
       } else {
         setProfile(null);
-        setNeedsVerification(false);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
-
-  const handleVerified = async () => {
-    if (!user) return;
-    setNeedsVerification(false);
-    await loadProfile(user);
-  };
 
   if (loading) {
     return (
@@ -93,11 +76,7 @@ function App() {
           path="/dashboard/*"
           element={
             user ? (
-              needsVerification ? (
-                <VerifyEmailScreen user={user} onVerified={handleVerified} />
-              ) : (
-                <AuthenticatedApp user={user} profile={profile} setProfile={setProfile} />
-              )
+              <AuthenticatedApp user={user} profile={profile} setProfile={setProfile} />
             ) : (
               <Navigate to="/login" />
             )
@@ -106,106 +85,6 @@ function App() {
         <Route path="/*" element={<Navigate to={user ? "/dashboard" : "/"} />} />
       </Routes>
     </Router>
-  );
-}
-
-function VerifyEmailScreen({ user, onVerified }: { user: User; onVerified: () => void }) {
-  const navigate = useNavigate();
-  const [checking, setChecking] = useState(false);
-  const [resending, setResending] = useState(false);
-  const [resent, setResent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleCheck = async () => {
-    setChecking(true);
-    setError(null);
-    try {
-      await user.reload();
-      await user.getIdToken(true); // refresh the token so Firestore rules see the new verified claim
-      if (user.emailVerified) {
-        onVerified();
-      } else {
-        setError('Still not verified. Click the link in the email we sent, then try again.');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Could not check verification status.');
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setResending(true);
-    setError(null);
-    try {
-      await resendVerificationEmail(user);
-      setResent(true);
-    } catch (err: any) {
-      setError(err.message || 'Could not resend the verification email.');
-    } finally {
-      setResending(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    await logout();
-    navigate('/');
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0b0f19] p-4 text-slate-900 dark:text-slate-100 transition-colors duration-200">
-      <div className="max-w-md w-full bg-white dark:bg-[#0f172a] rounded-2xl shadow-xl p-8 border border-slate-100 dark:border-slate-800/60 relative">
-        <div className="absolute top-6 right-6">
-          <ThemeToggle />
-        </div>
-        <div className="flex justify-center mb-6">
-          <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
-            <MailCheck size={32} />
-          </div>
-        </div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white text-center mb-2">Verify your email</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-center text-sm mb-6 leading-relaxed">
-          We sent a verification link to <strong className="text-slate-700 dark:text-slate-200">{user.email}</strong>. Click it, then come back here and continue.
-        </p>
-
-        {error && (
-          <div className="mb-4 p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs rounded-xl">
-            {error}
-          </div>
-        )}
-        {resent && (
-          <div className="mb-4 p-3.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs rounded-xl">
-            Verification email resent - check your inbox (and spam folder).
-          </div>
-        )}
-
-        <button
-          onClick={handleCheck}
-          disabled={checking}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 mb-3"
-        >
-          {checking ? <RefreshCw size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          <span>{checking ? 'Checking...' : "I've verified - Continue"}</span>
-        </button>
-
-        <button
-          onClick={handleResend}
-          disabled={resending}
-          className="w-full text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer disabled:opacity-50 py-1.5"
-        >
-          {resending ? 'Resending...' : 'Resend verification email'}
-        </button>
-
-        <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800/60 text-center">
-          <button
-            onClick={handleSignOut}
-            className="text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
-          >
-            Sign out and use a different account
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

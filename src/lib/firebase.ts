@@ -115,13 +115,6 @@ export const registerWithEmail = async (
       await updateProfile(user, { displayName: displayName.trim() });
     }
 
-    // Unlike Google sign-in, a fresh email/password account starts
-    // unverified. Firestore security rules require a verified email for
-    // any access (see firestore.rules: isAuthenticated()), so the profile
-    // document is intentionally NOT created here - it's created by
-    // ProfileSetup (in App.tsx) once the user has verified their email,
-    // the same path Google sign-in already uses for new accounts.
-    await sendEmailVerification(user);
     return user;
   } catch (error) {
     console.error('Email registration error:', error);
