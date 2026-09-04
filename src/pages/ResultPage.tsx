@@ -5,6 +5,7 @@ import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
+import { LegalDisclaimer } from '../components/LegalDisclaimer';
 import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle } from 'lucide-react';
 
 export default function ResultPage({ profile }: { profile: UserProfile }) {
@@ -500,13 +501,22 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
             </div>
           </div>
 
-          <div className="mt-20">
-            <p>Certified by:</p>
-            <div className="mt-8 border-t border-slate-300 w-64 pt-2">
-              <p className="font-bold text-sm">{profile.clinicName}</p>
-              <p className="text-xs text-slate-500">Authorized Representative Signature</p>
+          <div className="mt-14 flex flex-col sm:flex-row sm:items-end justify-between gap-8">
+            <div>
+              <p className="text-xs uppercase tracking-wider font-bold text-slate-500">Record Compiled By:</p>
+              <div className="mt-4 border-t border-slate-300 w-64 pt-2">
+                <p className="font-bold text-sm">{profile.clinicName}</p>
+                <p className="text-xs text-slate-500">Authorized Electronic Compliance Officer</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-slate-400">Tracker ID: {report.id.substring(0, 16).toUpperCase()}</p>
+              <p className="text-[10px] text-slate-400">Generated: {formatDate(new Date())}</p>
             </div>
           </div>
+
+          {/* Legal Compliance & Clinical Non-Intervention Disclaimer in Letter */}
+          <LegalDisclaimer variant="letter" showAttestation={true} id="certified-letter-legal-disclaimer" />
         </div>
       </div>
     );
@@ -705,15 +715,8 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
             </div>
           </section>
 
-          <section className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Activity size={18} className="text-blue-600" />
-              Compliance Disclaimer
-            </h3>
-            <p className="text-sm text-slate-600 leading-relaxed italic">
-              This automated analysis is designed to facilitate quick compliance verification. Please verify results against the original raw CPAP report prior to your DOT or FAA physical exam.
-            </p>
-          </section>
+          {/* Statutory Compliance & Regulatory Medical Disclaimer */}
+          <LegalDisclaimer variant="report" showAttestation={true} id="result-page-legal-disclaimer" />
         </div>
 
         {/* Sidebar Info */}

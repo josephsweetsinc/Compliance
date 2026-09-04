@@ -445,7 +445,7 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   doc.text(splitAttest, 20, 187);
 
   // 8. SIGNATURE & STAMP BLOCK ROW
-  const sigY = 210;
+  const sigY = 206;
   
   // Left Column: Professional signature block
   doc.setFont('helvetica', 'bold');
@@ -456,75 +456,88 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
   // Signature underline
   doc.setDrawColor(colorMuted.r, colorMuted.g, colorMuted.b);
   doc.setLineWidth(0.4);
-  doc.line(20, sigY + 15, 90, sigY + 15);
+  doc.line(20, sigY + 14, 90, sigY + 14);
 
   // Custom italic text representing actual signature
   doc.setFont('times', 'italic');
   doc.setFontSize(11);
   doc.setTextColor(colorAccent.r, colorAccent.g, colorAccent.b);
-  doc.text(clinicName, 26, sigY + 10);
+  doc.text(clinicName, 26, sigY + 9);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
-  doc.text(clinicName, 20, sigY + 19);
+  doc.text(clinicName, 20, sigY + 18);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   doc.setTextColor(colorMuted.r, colorMuted.g, colorMuted.b);
-  doc.text('Authorized Electronic Compliance Officer', 20, sigY + 23);
+  doc.text('Authorized Clinical Designee / Compliance Officer', 20, sigY + 22);
 
-  // Right Column: Gorgeous Verification Stamp
-  // Width 65mm, height 28mm, placed at x=125, y=sigY
+  // Right Column: Telemetry Validation Stamp
   doc.setDrawColor(colorMuted.r, colorMuted.g, colorMuted.b);
   doc.setLineWidth(0.35);
-  doc.setLineDashPattern([2, 2], 0); // Dash border representing stamps
-  doc.roundedRect(125, sigY - 2, 65, 26, 1.5, 1.5, 'S');
-  doc.setLineDashPattern([], 0); // Restore normal lines
+  doc.setLineDashPattern([2, 2], 0);
+  doc.roundedRect(125, sigY - 3, 65, 26, 1.5, 1.5, 'S');
+  doc.setLineDashPattern([], 0);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(colorAccent.r, colorAccent.g, colorAccent.b);
-  doc.text('TELEMETRY VALIDATION STAMP', 131, sigY + 3);
+  doc.text('TELEMETRY VALIDATION STAMP', 131, sigY + 2);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(isCompliant ? colorSuccess.r : colorDanger.r, isCompliant ? colorSuccess.g : colorDanger.g, isCompliant ? colorSuccess.b : colorDanger.b);
-  doc.text(isCompliant ? 'VERIFIED: COMPLIANT' : 'VERIFIED: NON-COMPLIANT', 131, sigY + 8);
+  doc.text(isCompliant ? 'VERIFIED: COMPLIANT' : 'VERIFIED: NON-COMPLIANT', 131, sigY + 7);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(colorSecondary.r, colorSecondary.g, colorSecondary.b);
-  doc.text(`Tracker Hash: ${report.id.substring(0, 16).toUpperCase()}`, 131, sigY + 13);
-  doc.text(`Verification Date: ${formatDate(new Date())}`, 131, sigY + 17);
-  doc.text(`Digital Seal Signature Signed Locally`, 131, sigY + 21);
+  doc.text(`Tracker Hash: ${report.id.substring(0, 16).toUpperCase()}`, 131, sigY + 12);
+  doc.text(`Verification Date: ${formatDate(new Date())}`, 131, sigY + 16);
+  doc.text(`Digital Seal Signature Signed Locally`, 131, sigY + 20);
 
-  // 9. SECURITY & CONFIDENTIALITY FOOTER
-  const footerY = 244;
+  // 9. STATUTORY COMPLIANCE & CLINICAL DISCLAIMER (Defense-in-depth liability protection)
+  const footerY = 237;
   doc.setFillColor(colorBgMuted.r, colorBgMuted.g, colorBgMuted.b);
-  doc.setDrawColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
+  doc.setDrawColor(colorBorder.r, colorBorder.g, colorBorder.b);
   doc.setLineWidth(0.4);
-  // Box for privacy instruction
-  doc.roundedRect(20, footerY - 4, 170, 20, 1.5, 1.5, 'F');
+  doc.roundedRect(20, footerY - 3, 170, 37, 1.5, 1.5, 'FD');
   
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
-  doc.text('🔒 OFFICIAL CONFIDENTIAL MEDICAL & COMPLIANCE RECORD', 24, footerY + 1);
+  doc.text('REGULATORY & CLINICAL DECISION SUPPORT DISCLAIMER', 24, footerY + 2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.8);
+  doc.setTextColor(colorPrimary.r, colorPrimary.g, colorPrimary.b);
+  const primaryDisclaimer = 
+    "ComplyZzz provides automated data extraction, auditing, and report formatting. It does not provide medical treatment or replace the clinical judgment of a certified NRCME Medical Examiner or FAA AME.";
+  const splitPrimary = doc.splitTextToSize(primaryDisclaimer, 162);
+  doc.text(splitPrimary, 24, footerY + 7);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
+  doc.setFontSize(5.8);
   doc.setTextColor(colorSecondary.r, colorSecondary.g, colorSecondary.b);
-  const privacyDisclaimer = 
-    "This certified compliance document contains driver health and CPAP therapy metrics intended strictly for official FMCSA / DOT physical examination verification. Store and transmit this document according to HIPAA and organizational privacy guidelines.";
-  
-  const splitDisclaimer = doc.splitTextToSize(privacyDisclaimer, 162);
-  doc.text(splitDisclaimer, 24, footerY + 5);
+  const legalDisclaimerDetails = 
+    "This document is an administrative compliance audit compiled from machine telemetry under Clinical Decision Support software guidelines (FDA 21 U.S.C. § 360hi). All calculated metrics (total days, days >= 4 hrs, adherence %, and AHI) must be independently reviewed and verified against raw manufacturer records by the credentialed examiner prior to signing official medical certificates (FMCSA MCSA-5875/5876 or FAA Form 8500-8). ComplyZzz disclaims all liability for certification decisions, clinical outcomes, or regulatory actions.";
+  const splitLegal = doc.splitTextToSize(legalDisclaimerDetails, 162);
+  doc.text(splitLegal, 24, footerY + 16);
+
+  doc.setFontSize(5.5);
+  doc.setTextColor(colorMuted.r, colorMuted.g, colorMuted.b);
+  doc.text(
+    'CONFIDENTIAL HEALTHCARE RECORD • STORE AND TRANSMIT IN ACCORDANCE WITH HIPAA AND ORGANIZATIONAL PRIVACY PROTOCOLS.',
+    24,
+    footerY + 31
+  );
 
   // Footnote
   doc.setFontSize(6.5);
   doc.setTextColor(colorMuted.r, colorMuted.g, colorMuted.b);
-  doc.text('Commercial Transport CPAP Assessment Verification Portal. Powered by Secure Endpoint Analytics.', 105, 274, { align: 'center' });
+  doc.text('ComplyZzz Commercial Transport & Aviation CPAP Verification Portal • Powered by Secure Telemetry Audit', 105, 281, { align: 'center' });
 
   // 10. TRIGGER SAVE DOWNLOAD
   if (shouldSave) {

@@ -546,6 +546,10 @@ async function startServer() {
             </div>
             
             <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 32px 0;" />
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: left; color: #64748b; font-size: 11px; line-height: 1.5; margin-bottom: 20px;">
+              <strong style="color: #334155; font-size: 11px;">⚖️ REGULATORY & CLINICAL DECISION SUPPORT DISCLAIMER:</strong><br />
+              ComplyZzz provides automated data extraction, auditing, and report formatting. It does not provide medical treatment or replace the clinical judgment of a certified NRCME Medical Examiner or FAA AME. All adherence metrics must be independently verified by the credentialed examiner prior to signing official examination certificates.
+            </div>
             <div style="text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.6;">
               <p style="margin: 0; font-weight: bold;">ComplyZzz Sleep Analytics Portal</p>
               <p style="margin: 4px 0 0 0;">This email was sent on behalf of your healthcare/safety administration program using the Resend platform.</p>
@@ -683,6 +687,12 @@ async function startServer() {
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 24px; font-size: 13px; color: #475569; line-height: 1.5;">
             <strong>🔒 CONFIDENTIALITY & PRIVACY NOTICE</strong><br />
             This compliance summary contains confidential medical and transport safety data. Access is restricted to verified healthcare and safety personnel. You can view, manage, or archive this official report directly in your portal.
+          </div>
+
+          <!-- Regulatory Compliance & Clinical Disclaimer -->
+          <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: 12px; padding: 14px; margin-bottom: 24px; font-size: 11px; color: #78350f; line-height: 1.5;">
+            <strong>⚖️ REGULATORY & CLINICAL DISCLAIMER:</strong><br />
+            ComplyZzz provides automated data extraction, auditing, and report formatting. It does not provide medical treatment or replace the clinical judgment of a certified NRCME Medical Examiner or FAA AME.
           </div>
 
           <!-- Footer -->
@@ -1100,16 +1110,48 @@ async function startServer() {
 
     const db = getAdminDb();
 
+    // Helper to safely extract target resource object across snapshot & thin events
+    const extractEventObject = async <T = any>(resourceType: 'checkout_session' | 'subscription' | 'invoice'): Promise<T | null> => {
+      if (event?.data && typeof event.data === 'object' && (event.data as any).object) {
+        return (event.data as any).object as T;
+      }
+      const relatedId = (event as any)?.related_object?.id || ((event?.data && typeof event.data === 'object') ? (event.data as any).id : null);
+      if (!relatedId) return null;
+
+      try {
+        if (resourceType === 'checkout_session') {
+          return await stripe.checkout.sessions.retrieve(relatedId) as unknown as T;
+        }
+        if (resourceType === 'subscription') {
+          return await stripe.subscriptions.retrieve(relatedId) as unknown as T;
+        }
+        if (resourceType === 'invoice') {
+          return await stripe.invoices.retrieve(relatedId) as unknown as T;
+        }
+      } catch (err: any) {
+        console.warn(`[Stripe Webhook] Failed to retrieve ${resourceType} (${relatedId}) for event ${event.id}:`, err.message);
+      }
+      return null;
+    };
+
     try {
       switch (event.type) {
         case 'checkout.session.completed': {
-          const session = event.data.object as Stripe.Checkout.Session;
+          const session = await extractEventObject<Stripe.Checkout.Session>('checkout_session');
+          if (!session) {
+            console.warn(`[Stripe Webhook] checkout.session.completed event missing session object (${event.id})`);
+            break;
+          }
           const result = await grantEntitlementForCheckoutSession(db, session);
           console.log(`[Stripe Webhook] Checkout session completed: ${session.id} -> ${JSON.stringify(result)}`);
           break;
         }
         case 'customer.subscription.updated': {
-          const subscription = event.data.object as Stripe.Subscription;
+          const subscription = await extractEventObject<Stripe.Subscription>('subscription');
+          if (!subscription) {
+            console.warn(`[Stripe Webhook] customer.subscription.updated missing subscription object (${event.id})`);
+            break;
+          }
           const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
           const userRef = customerId ? await findUserRefByStripeCustomerId(db, customerId) : null;
           if (userRef) {
@@ -1124,7 +1166,11 @@ async function startServer() {
           break;
         }
         case 'customer.subscription.deleted': {
-          const subscription = event.data.object as Stripe.Subscription;
+          const subscription = await extractEventObject<Stripe.Subscription>('subscription');
+          if (!subscription) {
+            console.warn(`[Stripe Webhook] customer.subscription.deleted missing subscription object (${event.id})`);
+            break;
+          }
           const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
           const userRef = customerId ? await findUserRefByStripeCustomerId(db, customerId) : null;
           if (userRef) {
@@ -1134,13 +1180,53 @@ async function startServer() {
           break;
         }
         case 'invoice.payment_succeeded': {
-          const invoice = event.data.object as Stripe.Invoice;
+          const invoice = await extractEventObject<Stripe.Invoice>('invoice');
+          if (!invoice) {
+            console.log(`[Stripe Webhook] invoice.payment_succeeded received (no invoice object directly attached, event id: ${event.id})`);
+            break;
+          }
           console.log(`[Stripe Webhook] Invoice payment succeeded: ${invoice.id}`);
+          const invAny = invoice as any;
+          if (invAny.subscription) {
+            const subscriptionId = typeof invAny.subscription === 'string' ? invAny.subscription : invAny.subscription?.id;
+            const customerId = typeof invAny.customer === 'string' ? invAny.customer : invAny.customer?.id;
+            let userRef = customerId ? await findUserRefByStripeCustomerId(db, customerId) : null;
+            if (!userRef && subscriptionId) {
+              const snap = await db.collection('users').where('stripeSubscriptionId', '==', subscriptionId).limit(1).get();
+              if (!snap.empty) userRef = snap.docs[0].ref;
+            }
+            if (userRef) {
+              await userRef.update({
+                subscriptionStatus: 'active',
+                subscriptionPlan: 'monthly_clinic',
+                lastInvoicePaidAt: new Date().toISOString(),
+              });
+            }
+          }
           break;
         }
         case 'invoice.payment_failed': {
-          const invoice = event.data.object as Stripe.Invoice;
+          const invoice = await extractEventObject<Stripe.Invoice>('invoice');
+          if (!invoice) {
+            console.warn(`[Stripe Webhook] invoice.payment_failed received (no invoice object directly attached, event id: ${event.id})`);
+            break;
+          }
           console.warn(`[Stripe Webhook] Invoice payment failed: ${invoice.id}`);
+          const invAny = invoice as any;
+          if (invAny.subscription) {
+            const subscriptionId = typeof invAny.subscription === 'string' ? invAny.subscription : invAny.subscription?.id;
+            const customerId = typeof invAny.customer === 'string' ? invAny.customer : invAny.customer?.id;
+            let userRef = customerId ? await findUserRefByStripeCustomerId(db, customerId) : null;
+            if (!userRef && subscriptionId) {
+              const snap = await db.collection('users').where('stripeSubscriptionId', '==', subscriptionId).limit(1).get();
+              if (!snap.empty) userRef = snap.docs[0].ref;
+            }
+            if (userRef) {
+              await userRef.update({
+                subscriptionStatus: 'past_due',
+              });
+            }
+          }
           break;
         }
         default:

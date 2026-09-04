@@ -5,6 +5,7 @@ import { UserProfile, ComplianceReport } from '../types';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Search, Filter, CheckCircle, XCircle, ChevronRight, FileText, Calendar, Trash2, Mail, CheckSquare, Square, Loader2, AlertCircle, Clock, X } from 'lucide-react';
 import { formatDate } from '../lib/utils';
+import { LegalDisclaimer } from '../components/LegalDisclaimer';
 
 export default function HistoryPage({ profile }: { profile: UserProfile }) {
   const [reports, setReports] = useState<ComplianceReport[]>([]);
@@ -344,6 +345,9 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
           </div>
         )}
       </section>
+
+      {/* Compliance & Regulatory Legal Disclaimer */}
+      <LegalDisclaimer variant="compact" id="history-legal-disclaimer" />
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (

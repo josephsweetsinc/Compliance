@@ -1131,9 +1131,14 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto mt-12 pt-6 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-slate-500">
-          <p>© {new Date().getFullYear()} ComplyZzz Sleep Compliance Solutions. All rights reserved.</p>
-          <p>Designed for DOT NRCME Medical Examiners, Pilots, and Transportation Personnel.</p>
+        <div className="max-w-7xl mx-auto mt-12 pt-6 border-t border-slate-800/60 space-y-4 text-[11px] text-slate-500">
+          <p className="text-slate-400 max-w-4xl leading-relaxed">
+            <strong>Regulatory & Clinical Disclaimer:</strong> ComplyZzz provides automated data extraction, auditing, and report formatting. It does not provide medical treatment or replace the clinical judgment of a certified NRCME Medical Examiner or FAA AME. All adherence metrics must be independently verified by the credentialed practitioner prior to executing official medical certification.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-slate-800/30">
+            <p>© {new Date().getFullYear()} ComplyZzz Sleep Compliance Solutions. All rights reserved.</p>
+            <p>Designed for DOT NRCME Medical Examiners, Pilots, and Transportation Personnel.</p>
+          </div>
         </div>
       </footer>
     </div>
