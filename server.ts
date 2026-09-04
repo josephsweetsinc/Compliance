@@ -346,6 +346,11 @@ async function startServer() {
   
   const apiRateLimiter = (maxRequests = 30, windowMs = 60 * 1000) => {
     return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      // Exclude Stripe webhooks from user rate limiting
+      if (req.path.endsWith('/webhook')) {
+        return next();
+      }
+
       const ip = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
       const now = Date.now();
       const record = apiRateLimitMap.get(ip);
@@ -400,7 +405,7 @@ async function startServer() {
   // Stripe calls the webhook directly with no user session (it authenticates
   // via the webhook signature instead), and the pricing config is public,
   // non-sensitive data - both are exempt from requireAuth.
-  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config']);
+  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook']);
   const requireAuthUnlessPublic = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (PUBLIC_API_PATHS.has(req.path)) {
       return next();
@@ -1062,10 +1067,13 @@ async function startServer() {
     }
   });
 
-  app.post("/api/billing/webhook", async (req: any, res) => {
+  app.post(["/api/billing/webhook", "/api/stripe/webhook"], async (req: any, res) => {
     const stripe = getStripe();
     const sig = req.headers['stripe-signature'];
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    let webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim() || '';
+    if ((webhookSecret.startsWith('"') && webhookSecret.endsWith('"')) || (webhookSecret.startsWith("'") && webhookSecret.endsWith("'"))) {
+      webhookSecret = webhookSecret.slice(1, -1).trim();
+    }
 
     if (!stripe) {
       return res.status(200).json({ received: true, simulated: true });
