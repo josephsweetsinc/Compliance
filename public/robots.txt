@@ -1,0 +1,8 @@
+# ComplyZzz robots.txt
+User-agent: *
+Allow: /
+Allow: /login
+Disallow: /dashboard/
+Disallow: /api/
+
+Sitemap: https://complyzzz.com/sitemap.xml

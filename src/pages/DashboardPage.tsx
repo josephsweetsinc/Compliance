@@ -64,15 +64,15 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
   };
 
   return (
-    <div className="space-y-8">
-      <header className="flex justify-between items-end">
+    <div className="space-y-6 sm:space-y-8">
+      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
-          <p className="text-slate-500 dark:text-slate-400">Welcome back, {profile.displayName || 'Operator'}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Welcome back, {profile.displayName || 'Operator'}</p>
         </div>
         <Link
           to="/dashboard/upload"
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 dark:shadow-none cursor-pointer"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl transition-all shadow-md shadow-blue-500/20 cursor-pointer min-h-[44px]"
         >
           <FileUp size={20} />
           <span>Upload New Report</span>
@@ -80,7 +80,7 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
       </header>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         <StatCard
           icon={<History className="text-blue-600 dark:text-blue-400" />}
           label="Recent Reports"
@@ -99,26 +99,26 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
           value={(stats.nonCompliant ?? 0).toString()}
           bgColor="bg-rose-50 dark:bg-rose-950/30"
         />
-        <div className="bg-white dark:bg-[#0f172a] p-6 rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm flex flex-col justify-between transition-colors duration-200">
+        <div className="col-span-2 sm:col-span-1 bg-white dark:bg-[#0f172a] p-4 sm:p-6 rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm flex flex-col justify-between transition-colors duration-200">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">Plan & Credits</span>
-            <div className={`p-3 rounded-xl ${profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active' ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400' : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400'}`}>
+            <span className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">Plan & Credits</span>
+            <div className={`p-2.5 sm:p-3 rounded-xl ${profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active' ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400' : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400'}`}>
               {profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active' ? (
-                <Building2 size={20} />
+                <Building2 size={18} />
               ) : (
-                <Coins size={20} />
+                <Coins size={18} />
               )}
             </div>
           </div>
           <div className="mt-2">
-            <p className="text-xl font-bold text-slate-900 dark:text-white">
+            <p className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
               {profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active'
                 ? 'Unlimited'
                 : `${profile.reportCredits ?? 0} Credits`}
             </p>
             <Link
               to="/dashboard/billing"
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-flex items-center gap-1"
+              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-flex items-center gap-1 min-h-[36px]"
             >
               {profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active'
                 ? 'Manage Plan ($250/mo)'
@@ -131,9 +131,9 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
       <div className="grid grid-cols-1 gap-8">
         {/* Recent Activity */}
         <section className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-100 dark:border-slate-800/60 shadow-sm overflow-hidden transition-colors duration-200">
-          <div className="p-6 border-b border-slate-50 dark:border-slate-800/60 flex justify-between items-center">
-            <h2 className="text-xl font-bold text-slate-800 dark:text-white">Recent Activity</h2>
-            <Link to="/history" className="text-blue-600 dark:text-blue-400 hover:text-blue-750 dark:hover:text-blue-300 text-sm font-semibold flex items-center gap-1">
+          <div className="p-4 sm:p-6 border-b border-slate-50 dark:border-slate-800/60 flex justify-between items-center">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 dark:text-white">Recent Activity</h2>
+            <Link to="/dashboard/history" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs sm:text-sm font-semibold flex items-center gap-1 py-1">
               View All <ChevronRight size={16} />
             </Link>
           </div>
@@ -147,26 +147,34 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
               {recentReports.map((report) => (
                 <Link
                   key={report.id}
-                  to={`/report/${report.id}`}
-                  className="flex items-center justify-between p-6 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+                  to={`/dashboard/report/${report.id}`}
+                  className="flex items-center justify-between p-4 sm:p-6 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg ${report.status === 'Compliant' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400'}`}>
-                      {report.status === 'Compliant' ? <CheckCircle size={20} /> : <XCircle size={20} />}
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                    <div className={`p-2 rounded-lg shrink-0 ${report.status === 'Compliant' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400'}`}>
+                      {report.status === 'Compliant' ? <CheckCircle size={18} /> : <XCircle size={18} />}
                     </div>
-                    <div>
-                      <h3 className="font-bold text-slate-800 dark:text-slate-100">{report.patientName}</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                        <Clock size={14} /> {formatDate(report.createdAt)}
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base truncate">{report.patientName}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                        <Clock size={12} /> {formatDate(report.createdAt)}
                       </p>
+                      {/* Mobile-only compliance pill */}
+                      <div className="sm:hidden mt-1 flex items-center gap-2 text-xs">
+                        <span className={`font-bold ${report.status === 'Compliant' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {report.metrics?.compliance_percentage ?? report.metrics?.usage_days_percent ?? 0}%
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px]">{report.metrics?.average_usage_hours ?? 0} hrs avg</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-3 sm:gap-6 shrink-0">
                     <div className="text-right hidden sm:block">
                       <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{report.metrics?.compliance_percentage ?? 0}% Compliance</p>
                       <p className="text-xs text-slate-400 dark:text-slate-500">{report.metrics?.average_usage_hours ?? 0} hrs avg usage</p>
                     </div>
-                    <ChevronRight size={20} className="text-slate-300 dark:text-slate-600" />
+                    <ChevronRight size={18} className="text-slate-300 dark:text-slate-600" />
                   </div>
                 </Link>
               ))}
@@ -179,7 +187,7 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
                 </div>
               </div>
               <p className="text-slate-500 dark:text-slate-400 font-medium">No reports uploaded yet.</p>
-              <Link to="/upload" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-semibold mt-2 inline-block">
+              <Link to="/dashboard/upload" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-semibold mt-2 inline-block">
                 Upload your first report
               </Link>
             </div>

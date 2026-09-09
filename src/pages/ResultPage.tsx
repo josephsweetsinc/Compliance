@@ -315,16 +315,16 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   if (showLetterPreview) {
     return (
       <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
-        <header className="flex justify-between items-center">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <button 
             onClick={() => setShowLetterPreview(false)} 
-            className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors"
+            className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-bold transition-colors cursor-pointer min-h-[44px]"
           >
             <ChevronLeft size={20} />
             <span>Back to Analysis</span>
           </button>
-          <div className="flex items-center gap-3">
-            <div className="relative group">
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+            <div className="relative flex-1 sm:flex-initial min-w-[200px]">
               <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
                 <Mail size={16} />
               </div>
@@ -333,13 +333,13 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                 placeholder="Recipient Email"
                 value={recipientEmail}
                 onChange={(e) => setRecipientEmail(e.target.value)}
-                className="pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 md:w-64 transition-all"
+                className="pl-9 pr-4 py-2.5 text-base sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-56 transition-all min-h-[44px]"
               />
             </div>
             <button
               onClick={handleSendEmail}
               disabled={sendingEmail || downloadingPdf}
-              className={`flex items-center gap-2 font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg ${
+              className={`flex items-center justify-center gap-2 font-bold py-2.5 px-4 sm:px-6 rounded-xl transition-all shadow-md min-h-[44px] cursor-pointer text-xs sm:text-sm ${
                 emailStatus === 'success' 
                   ? 'bg-emerald-600 text-white shadow-emerald-200' 
                   : emailStatus === 'error'
@@ -347,15 +347,15 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-slate-100 disabled:opacity-50'
               }`}
             >
-              {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
-              <span>{sendingEmail ? 'Sending...' : emailStatus === 'success' ? 'Email Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
+              {sendingEmail ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+              <span>{sendingEmail ? 'Sending...' : emailStatus === 'success' ? 'Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
             </button>
             <button
               onClick={handleDownload}
               disabled={downloadingPdf || sendingEmail}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200 disabled:shadow-none"
+              className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-2.5 px-4 sm:px-6 rounded-xl transition-all shadow-md shadow-blue-200 disabled:shadow-none min-h-[44px] cursor-pointer text-xs sm:text-sm"
             >
-              {downloadingPdf ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+              {downloadingPdf ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
               <span>{downloadingPdf ? 'Processing...' : 'Download PDF Letter'}</span>
             </button>
           </div>
@@ -555,18 +555,22 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
         </div>
       </div>
 
-      <header className="flex justify-between items-center">
-        <Link to="/history" className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <Link 
+          to="/dashboard/history" 
+          className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-bold transition-colors min-h-[40px]"
+        >
           <ChevronLeft size={20} />
           <span>Back to History</span>
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <button
             onClick={handleDelete}
-            className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+            className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
             title="Delete Report"
+            aria-label="Delete Report"
           >
-            <Trash2 size={20} />
+            <Trash2 size={18} />
           </button>
           
           <div className="relative hidden md:block">
@@ -578,14 +582,14 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
               placeholder="Recipient Email"
               value={recipientEmail}
               onChange={(e) => setRecipientEmail(e.target.value)}
-              className="pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 lg:w-64 transition-all"
+              className="pl-9 pr-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 lg:w-64 transition-all min-h-[44px]"
             />
           </div>
 
           <button
             onClick={handleSendEmail}
             disabled={sendingEmail || downloadingPdf}
-            className={`flex items-center gap-2 font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg ${
+            className={`flex items-center justify-center gap-2 font-bold py-2.5 px-4 sm:px-6 rounded-xl transition-all shadow-md min-h-[44px] cursor-pointer text-xs sm:text-sm ${
               emailStatus === 'success' 
                 ? 'bg-emerald-600 text-white shadow-emerald-200' 
                 : emailStatus === 'error'
@@ -593,15 +597,15 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                 : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-slate-100 disabled:opacity-50'
             }`}
           >
-            {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
-            <span>{sendingEmail ? 'Sending...' : emailStatus === 'success' ? 'Email Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
+            {sendingEmail ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+            <span>{sendingEmail ? 'Sending...' : emailStatus === 'success' ? 'Sent!' : emailStatus === 'error' ? 'Error' : 'Email Report'}</span>
           </button>
           <button
             onClick={() => setShowLetterPreview(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-200"
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 sm:px-6 rounded-xl transition-all shadow-md shadow-blue-200 min-h-[44px] cursor-pointer text-xs sm:text-sm"
           >
-            <FileText size={20} />
-            <span>Generate Certified Letter</span>
+            <FileText size={18} />
+            <span>Generate Letter</span>
           </button>
         </div>
       </header>

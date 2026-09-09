@@ -2,6 +2,16 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+/* Prevent horizontal viewport overflow & side-to-side scrolling */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
 /* Theme transition effect */
 * {
   transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;

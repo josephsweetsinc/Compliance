@@ -96,32 +96,35 @@ export default function HelpPage() {
           {faqs.map((faq, index) => (
             <div key={index} className="group">
               <button
+                type="button"
                 onClick={() => setOpenIndex(openIndex === index ? null : index)}
-                className="w-full text-left p-6 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                className="w-full text-left p-4 sm:p-6 flex items-start sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors cursor-pointer min-h-[48px]"
               >
-                <div className="flex items-center gap-4">
-                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 flex-1">
+                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 sm:py-1 rounded-md self-start ${
                     faq.category === 'usage' ? 'bg-blue-100 text-blue-700' :
                     faq.category === 'criteria' ? 'bg-emerald-100 text-emerald-700' :
                     'bg-slate-100 text-slate-700'
                   }`}>
                     {faq.category}
                   </span>
-                  <span className="font-bold text-slate-700 group-hover:text-blue-600 transition-colors">
+                  <span className="font-bold text-slate-800 text-sm sm:text-base group-hover:text-blue-600 transition-colors">
                     {faq.question}
                   </span>
                 </div>
-                {openIndex === index ? (
-                  <ChevronUp className="text-slate-400" size={20} />
-                ) : (
-                  <ChevronDown className="text-slate-400" size={20} />
-                )}
+                <div className="shrink-0 pt-0.5 sm:pt-0">
+                  {openIndex === index ? (
+                    <ChevronUp className="text-slate-400" size={20} />
+                  ) : (
+                    <ChevronDown className="text-slate-400" size={20} />
+                  )}
+                </div>
               </button>
               {openIndex === index && (
                 <div
                   className="overflow-hidden bg-slate-50/50 transition-all duration-300"
                 >
-                  <div className="p-6 pt-0 ml-16 text-slate-600 leading-relaxed text-sm">
+                  <div className="p-4 sm:p-6 pt-0 sm:ml-16 text-slate-600 leading-relaxed text-xs sm:text-sm">
                     {faq.answer}
                   </div>
                 </div>
@@ -137,14 +140,14 @@ export default function HelpPage() {
           <h2 className="text-xl font-bold mb-2">Still have questions?</h2>
           <p className="text-slate-400 text-sm">Our team of compliance experts is available to help with any questions.</p>
         </div>
-        <div className="flex gap-4 relative z-10 w-full md:w-auto">
-          <button className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl transition-all">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 relative z-10 w-full md:w-auto">
+          <button className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl transition-all min-h-[44px] cursor-pointer text-sm">
             <Mail size={18} />
-            Contact Support
+            <span>Contact Support</span>
           </button>
-          <button className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold py-3 px-8 rounded-xl transition-all">
+          <button className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold py-3.5 px-6 rounded-xl transition-all min-h-[44px] cursor-pointer text-sm">
             <Info size={18} />
-            Knowledge Base
+            <span>Knowledge Base</span>
           </button>
         </div>
         {/* Abstract background element */}

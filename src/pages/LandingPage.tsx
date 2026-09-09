@@ -168,13 +168,13 @@ export default function LandingPage() {
           </div>
 
           {/* Right Header Actions */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <ThemeToggle />
             
             <button 
               type="button"
               onClick={() => navigate('/login?mode=signin')}
-              className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-3 py-2 cursor-pointer"
+              className="hidden sm:inline-flex text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-3 py-2 cursor-pointer"
             >
               Sign In
             </button>
@@ -182,7 +182,7 @@ export default function LandingPage() {
             <button 
               type="button"
               onClick={() => navigate('/login?mode=signup')}
-              className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-4 sm:px-5 py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all shadow-md shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer"
+              className="hidden md:inline-flex bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-4 sm:px-5 py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all shadow-md shadow-blue-500/20 items-center gap-1.5 cursor-pointer"
             >
               <span>Get Started</span>
               <ChevronRight size={16} />
@@ -192,7 +192,7 @@ export default function LandingPage() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
               aria-label="Toggle menu"
             >
               {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -243,14 +243,14 @@ export default function LandingPage() {
               <button 
                 type="button"
                 onClick={() => { setMobileMenuOpen(false); navigate('/login?mode=signin'); }}
-                className="w-full text-center py-2.5 text-sm font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-xl cursor-pointer"
+                className="w-full text-center py-3 text-sm font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-xl cursor-pointer min-h-[44px]"
               >
                 Sign In
               </button>
               <button 
                 type="button"
                 onClick={() => { setMobileMenuOpen(false); navigate('/login?mode=signup'); }}
-                className="w-full text-center py-2.5 text-sm font-bold text-white bg-blue-600 dark:bg-blue-500 rounded-xl shadow-md cursor-pointer"
+                className="w-full text-center py-3 text-sm font-bold text-white bg-blue-600 dark:bg-blue-500 rounded-xl shadow-md cursor-pointer min-h-[44px]"
               >
                 Create Free Account
               </button>
@@ -260,71 +260,71 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden relative">
+      <section className="pt-28 sm:pt-32 pb-16 sm:pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden relative">
         <div className="max-w-7xl mx-auto">
           
           {/* Regulatory Badges */}
-          <div className="flex flex-wrap items-center justify-center gap-2.5 mb-8 animate-in fade-in duration-500">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/80 rounded-full text-blue-700 dark:text-blue-300 text-xs font-bold uppercase tracking-wider shadow-xs">
-              <ShieldCheck size={14} className="text-blue-600 dark:text-blue-400" />
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5 mb-6 sm:mb-8 animate-in fade-in duration-500 max-w-full">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/80 rounded-full text-blue-700 dark:text-blue-300 text-[10px] sm:text-xs font-bold uppercase tracking-wider shadow-xs max-w-full text-center">
+              <ShieldCheck size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span>FMCSA 49 CFR § 391.41 Compliant</span>
             </div>
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 rounded-full text-indigo-700 dark:text-indigo-300 text-xs font-bold uppercase tracking-wider shadow-xs">
-              <Plane size={14} className="text-indigo-600 dark:text-indigo-400" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 rounded-full text-indigo-700 dark:text-indigo-300 text-[10px] sm:text-xs font-bold uppercase tracking-wider shadow-xs max-w-full text-center">
+              <Plane size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>FAA 14 CFR Part 67 Sleep Rubrics</span>
             </div>
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 rounded-full text-emerald-700 dark:text-emerald-300 text-xs font-bold uppercase tracking-wider shadow-xs">
-              <Zap size={14} className="text-emerald-600 dark:text-emerald-400" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 rounded-full text-emerald-700 dark:text-emerald-300 text-[10px] sm:text-xs font-bold uppercase tracking-wider shadow-xs max-w-full text-center">
+              <Zap size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>5-Second Instant Determination</span>
             </div>
           </div>
 
           {/* Main Headline */}
-          <div className="text-center max-w-4xl mx-auto space-y-6">
-            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.08]">
+          <div className="text-center max-w-4xl mx-auto space-y-4 sm:space-y-6">
+            <h1 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.12] sm:leading-[1.08] break-words">
               Instant FMCSA & FAA <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 dark:from-blue-400 dark:via-indigo-400 dark:to-blue-300">
                 CPAP Compliance Letters
               </span>
             </h1>
 
-            <p className="text-base sm:text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-sm sm:text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed px-1">
               Never get turned away from your commercial driver medical exam or flight physical. Upload any CPAP sleep report from ResMed, Philips, or Fisher & Paykel and get a certified determination letter in seconds.
             </p>
 
             {/* CTA Buttons */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-2 sm:pt-4 w-full max-w-md sm:max-w-none mx-auto">
               <button
                 type="button"
                 onClick={() => navigate('/login?mode=signup')}
-                className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white text-base sm:text-lg transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/25 hover:scale-[1.02] cursor-pointer"
+                className="w-full sm:w-auto px-5 sm:px-8 py-3.5 sm:py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white text-sm sm:text-lg transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/25 hover:scale-[1.02] cursor-pointer min-h-[48px]"
               >
                 <span>Upload Report ($9 / Free Starter)</span>
-                <ChevronRight size={20} />
+                <ChevronRight size={18} className="shrink-0" />
               </button>
 
               <a
                 href="#simulator"
-                className="w-full sm:w-auto px-6 py-4 rounded-2xl font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-base transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-2xl font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm sm:text-base transition-all flex items-center justify-center gap-2 cursor-pointer min-h-[48px]"
               >
-                <Play size={18} className="text-blue-600 dark:text-blue-400" />
+                <Play size={16} className="text-blue-600 dark:text-blue-400 shrink-0" />
                 <span>Test Live Demo Simulator</span>
               </a>
             </div>
 
             {/* Social Trust Metrics */}
-            <div className="pt-8 flex flex-wrap items-center justify-center gap-6 sm:gap-12 text-slate-500 dark:text-slate-400 text-xs sm:text-sm">
+            <div className="pt-6 sm:pt-8 flex flex-wrap items-center justify-center gap-4 sm:gap-12 text-slate-500 dark:text-slate-400 text-xs sm:text-sm">
               <div className="flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400" />
-                <span><strong className="text-slate-900 dark:text-white">10,000+</strong> Audits Processed</span>
+                <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span><strong className="text-slate-900 dark:text-white">10,000+</strong> Audits</span>
               </div>
               <div className="flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400" />
-                <span><strong className="text-slate-900 dark:text-white">99.8%</strong> NRCME Examiner Acceptance</span>
+                <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span><strong className="text-slate-900 dark:text-white">99.8%</strong> NRCME Acceptance</span>
               </div>
               <div className="flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400" />
-                <span><strong className="text-slate-900 dark:text-white">All CPAP Brands</strong> Compatible</span>
+                <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span><strong className="text-slate-900 dark:text-white">All CPAP Brands</strong></span>
               </div>
             </div>
           </div>
@@ -380,16 +380,16 @@ export default function LandingPage() {
           </div>
 
           {/* Simulator Card Display */}
-          <div className="bg-white dark:bg-[#0b0f19] rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-xl max-w-4xl mx-auto space-y-6 transition-all">
+          <div className="bg-white dark:bg-[#0b0f19] rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-8 shadow-xl max-w-4xl mx-auto space-y-6 transition-all">
             
             {/* Top Bar with Status Pill */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pb-5 sm:pb-6 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/60 rounded-2xl text-blue-600 dark:text-blue-400">
-                  <FileCheck size={24} />
+                <div className="p-2.5 sm:p-3 bg-blue-50 dark:bg-blue-950/60 rounded-2xl text-blue-600 dark:text-blue-400 shrink-0">
+                  <FileCheck size={22} className="sm:w-6 sm:h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span>Clinical Compliance Determination</span>
                     {isSimulating && <RotateCcw size={16} className="animate-spin text-blue-600" />}
                   </h3>
@@ -400,15 +400,15 @@ export default function LandingPage() {
               </div>
 
               {/* Status Badge */}
-              <div>
+              <div className="self-start sm:self-auto">
                 {activeScenario.fmcsaStatus === 'COMPLIANT' ? (
-                  <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-300 rounded-full text-xs font-extrabold uppercase tracking-wider">
-                    <CheckCircle2 size={16} />
+                  <span className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 sm:py-2 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-300 rounded-full text-xs font-extrabold uppercase tracking-wider">
+                    <CheckCircle2 size={15} className="shrink-0" />
                     <span>FMCSA Compliant (Pass)</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/80 text-amber-700 dark:text-amber-300 rounded-full text-xs font-extrabold uppercase tracking-wider">
-                    <AlertTriangle size={16} />
+                  <span className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 sm:py-2 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/80 text-amber-700 dark:text-amber-300 rounded-full text-xs font-extrabold uppercase tracking-wider">
+                    <AlertTriangle size={15} className="shrink-0" />
                     <span>Conditional (Review)</span>
                   </span>
                 )}
@@ -416,46 +416,46 @@ export default function LandingPage() {
             </div>
 
             {/* Extracted Metrics Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Compliance Rate</p>
-                <p className={`text-2xl font-extrabold mt-1 ${
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
+              <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Compliance Rate</p>
+                <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${
                   Math.round((activeScenario.daysCompliant / activeScenario.totalDays) * 100) >= 70
                     ? 'text-emerald-600 dark:text-emerald-400'
                     : 'text-amber-600 dark:text-amber-400'
                 }`}>
                   {Math.round((activeScenario.daysCompliant / activeScenario.totalDays) * 100)}%
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">FMCSA Req: &ge; 70%</p>
+                <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5">FMCSA: &ge; 70%</p>
               </div>
 
-              <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Nights &ge; 4.0 Hrs</p>
-                <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
-                  {activeScenario.daysCompliant} <span className="text-xs font-normal text-slate-500">/ {activeScenario.totalDays} days</span>
+              <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Nights &ge; 4.0 Hrs</p>
+                <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
+                  {activeScenario.daysCompliant} <span className="text-xs font-normal text-slate-500">/ {activeScenario.totalDays}d</span>
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Evaluation window</p>
+                <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5">Eval window</p>
               </div>
 
-              <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Average Daily Usage</p>
-                <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
-                  {activeScenario.avgHours} <span className="text-xs font-normal text-slate-500">hrs/day</span>
+              <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Avg Usage</p>
+                <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
+                  {activeScenario.avgHours} <span className="text-xs font-normal text-slate-500">hrs</span>
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">FAA Target: &ge; 6.0 hrs</p>
+                <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5">FAA: &ge; 6.0 hrs</p>
               </div>
 
-              <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">AHI Event Score</p>
-                <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
-                  {activeScenario.ahi} <span className="text-xs font-normal text-slate-500">events/hr</span>
+              <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] sm:text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">AHI Score</p>
+                <p className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mt-1">
+                  {activeScenario.ahi} <span className="text-xs font-normal text-slate-500">/hr</span>
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Normal: &lt; 5.0</p>
+                <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5">Normal: &lt; 5.0</p>
               </div>
             </div>
 
             {/* Highlight Banner */}
-            <div className="p-4 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div className="p-3.5 sm:p-4 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/60 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-2.5 text-blue-900 dark:text-blue-200">
                 <Check className="text-blue-600 dark:text-blue-400 shrink-0" size={16} />
                 <span className="font-semibold">{activeScenario.highlight}</span>
@@ -464,7 +464,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => navigate('/login')}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shrink-0 cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shrink-0 cursor-pointer min-h-[40px] text-center"
               >
                 Audit Your PDF
               </button>
@@ -474,17 +474,17 @@ export default function LandingPage() {
       </section>
 
       {/* Target Audience Solutions Section */}
-      <section id="solutions" className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto space-y-16">
+      <section id="solutions" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto space-y-12 sm:space-y-16">
           
-          <div className="text-center max-w-3xl mx-auto space-y-4">
+          <div className="text-center max-w-3xl mx-auto space-y-3 sm:space-y-4">
             <p className="text-blue-600 dark:text-blue-400 font-bold text-xs uppercase tracking-widest">
               Tailored Workflows
             </p>
-            <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               Built for Every Transportation Stakeholder
             </h2>
-            <p className="text-slate-600 dark:text-slate-300 text-base sm:text-lg">
+            <p className="text-slate-600 dark:text-slate-300 text-sm sm:text-lg px-2">
               Whether you are an independent owner-operator taking a medical exam today or a clinic examining 50 drivers a week.
             </p>
           </div>
@@ -492,16 +492,16 @@ export default function LandingPage() {
           {/* Audience Solution Tabs */}
           <div className="flex flex-wrap items-center justify-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-4">
             {[
-              { id: 'drivers', label: 'Commercial Drivers (CDL)', icon: <Truck size={16} /> },
-              { id: 'pilots', label: 'Commercial Pilots (FAA)', icon: <Plane size={16} /> },
-              { id: 'examiners', label: 'DOT Medical Examiners (NRCME)', icon: <Stethoscope size={16} /> },
-              { id: 'fleets', label: 'Fleet Safety Managers', icon: <Building2 size={16} /> },
+              { id: 'drivers', label: 'Drivers (CDL)', icon: <Truck size={15} /> },
+              { id: 'pilots', label: 'Pilots (FAA)', icon: <Plane size={15} /> },
+              { id: 'examiners', label: 'Examiners (NRCME)', icon: <Stethoscope size={15} /> },
+              { id: 'fleets', label: 'Fleet Safety', icon: <Building2 size={15} /> },
             ].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveAudienceTab(tab.id as any)}
-                className={`px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                className={`px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ${
                   activeAudienceTab === tab.id
                     ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -823,14 +823,14 @@ export default function LandingPage() {
           </div>
 
           {/* Interactive Slider */}
-          <div className="bg-white dark:bg-[#0b0f19] rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-10 shadow-xl max-w-4xl mx-auto space-y-8">
+          <div className="bg-white dark:bg-[#0b0f19] rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-10 shadow-xl max-w-4xl mx-auto space-y-6 sm:space-y-8">
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                  <Sliders size={16} className="text-blue-600 dark:text-blue-400" />
+                <label className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <Sliders size={16} className="text-blue-600 dark:text-blue-400 shrink-0" />
                   <span>Estimated Monthly CPAP Audits</span>
                 </label>
-                <span className="text-2xl font-extrabold text-blue-600 dark:text-blue-400">
+                <span className="text-xl sm:text-2xl font-extrabold text-blue-600 dark:text-blue-400">
                   {monthlyVolume} {monthlyVolume === 1 ? 'Report' : 'Reports'} / month
                 </span>
               </div>
@@ -845,11 +845,11 @@ export default function LandingPage() {
                 className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
               />
 
-              <div className="flex justify-between text-xs text-slate-400 font-medium">
-                <span>1 Driver (Individual)</span>
-                <span>50 Drivers (Clinic)</span>
-                <span>150 Drivers (Multi-Location)</span>
-                <span>250+ Drivers (Fleet)</span>
+              <div className="flex justify-between text-[11px] sm:text-xs text-slate-400 font-medium">
+                <span>1 Driver</span>
+                <span className="hidden sm:inline">50 (Clinic)</span>
+                <span className="hidden md:inline">150 (Multi-Site)</span>
+                <span>250+ (Fleet)</span>
               </div>
             </div>
 
@@ -891,18 +891,18 @@ export default function LandingPage() {
             </div>
 
             {/* Savings & Efficiency Callout */}
-            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
-              <div className="flex items-center gap-3 text-emerald-800 dark:text-emerald-200">
-                <CheckCircle2 size={20} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <div className="p-3.5 sm:p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 text-xs">
+              <div className="flex items-center gap-2.5 text-emerald-800 dark:text-emerald-200">
+                <CheckCircle2 size={18} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span>
-                  Estimated Examiner Time Saved: <strong className="font-extrabold text-sm">{estimatedHoursSaved} Hours/Month</strong>
+                  Estimated Examiner Time Saved: <strong className="font-extrabold text-xs sm:text-sm">{estimatedHoursSaved} Hours/Month</strong>
                 </span>
               </div>
 
               <button
                 type="button"
                 onClick={() => navigate('/login?mode=signup')}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-xs"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shrink-0 shadow-xs text-center min-h-[40px]"
               >
                 Choose This Plan
               </button>
@@ -912,36 +912,36 @@ export default function LandingPage() {
       </section>
 
       {/* Security & Confidentiality Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
-          <div className="space-y-6">
+      <section className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 sm:gap-16 items-center">
+          <div className="space-y-5 sm:space-y-6">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-full text-xs font-bold uppercase tracking-wider">
               <Lock size={14} />
               <span>Enterprise Privacy Architecture</span>
             </div>
-            <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               Medical Privacy & Security First
             </h2>
-            <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-base">
+            <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
               We know healthcare compliance and driver medical privacy are paramount. ComplyZzz processes records in compliance with rigorous healthcare data security standards.
             </p>
-            <div className="space-y-4 pt-2">
+            <div className="space-y-3.5 sm:space-y-4 pt-1">
               <div className="flex items-start gap-3">
-                <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400 mt-1 shrink-0" />
+                <ShieldCheck size={18} className="text-emerald-600 dark:text-emerald-400 mt-1 shrink-0" />
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">256-Bit TLS Encryption</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">All files are processed through encrypted pipelines with zero public storage exposure.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400 mt-1 shrink-0" />
+                <ShieldCheck size={18} className="text-emerald-600 dark:text-emerald-400 mt-1 shrink-0" />
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">Zero Model Training on Patient Data</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Your sleep logs and driver records are never used to train public or commercial AI models.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400 mt-1 shrink-0" />
+                <ShieldCheck size={18} className="text-emerald-600 dark:text-emerald-400 mt-1 shrink-0" />
                 <div>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">Role-Based Access Controls (RBAC)</h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Strict Firestore security rules ensure drivers only see their own audits and clinics see their verified roster.</p>
@@ -950,18 +950,18 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="bg-slate-900 text-white p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <span className="font-mono text-xs text-slate-400">SECURITY_COMPLIANCE_PROTOCOL</span>
-              <span className="text-xs font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-full">ACTIVE</span>
+          <div className="bg-slate-900 text-white p-5 sm:p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-5 sm:space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4 gap-2">
+              <span className="font-mono text-[10px] sm:text-xs text-slate-400 truncate">SECURITY_COMPLIANCE_PROTOCOL</span>
+              <span className="text-[10px] sm:text-xs font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-full shrink-0">ACTIVE</span>
             </div>
-            <div className="font-mono text-xs space-y-3 text-slate-300 leading-relaxed">
+            <div className="font-mono text-[11px] sm:text-xs space-y-2.5 sm:space-y-3 text-slate-300 leading-relaxed">
               <p><span className="text-blue-400">✓ FMCSA:</span> 49 CFR § 391.41 standard rubric verified</p>
               <p><span className="text-blue-400">✓ FAA:</span> 14 CFR Part 67 medical documentation ready</p>
               <p><span className="text-blue-400">✓ ENCRYPTION:</span> AES-256 at rest & TLS 1.3 in transit</p>
               <p><span className="text-blue-400">✓ AUDIT TRAILS:</span> Examiner NPI & timestamp logged</p>
             </div>
-            <div className="p-4 bg-slate-800/80 rounded-2xl border border-slate-700 text-xs text-slate-400">
+            <div className="p-3.5 sm:p-4 bg-slate-800/80 rounded-2xl border border-slate-700 text-xs text-slate-400">
               Compliant with National Registry of Certified Medical Examiners (NRCME) audit standards.
             </div>
           </div>
@@ -969,22 +969,22 @@ export default function LandingPage() {
       </section>
 
       {/* Frequently Asked Questions Accordion */}
-      <section id="faq" className="py-24 px-4 sm:px-6 lg:px-8 bg-slate-50 dark:bg-[#0f172a]/60 border-t border-slate-200/80 dark:border-slate-800">
-        <div className="max-w-4xl mx-auto space-y-12">
+      <section id="faq" className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 bg-slate-50 dark:bg-[#0f172a]/60 border-t border-slate-200/80 dark:border-slate-800">
+        <div className="max-w-4xl mx-auto space-y-8 sm:space-y-12">
           
-          <div className="text-center space-y-3">
+          <div className="text-center space-y-2 sm:space-y-3">
             <p className="text-blue-600 dark:text-blue-400 font-bold text-xs uppercase tracking-widest">
               Common Questions
             </p>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               Frequently Asked Questions
             </h2>
-            <p className="text-slate-600 dark:text-slate-300 text-sm sm:text-base">
+            <p className="text-slate-600 dark:text-slate-300 text-sm sm:text-base px-2">
               Everything you need to know about DOT physical CPAP compliance letters.
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {[
               {
                 q: "What is the FMCSA 70% CPAP compliance rule for DOT physicals?",
@@ -1016,13 +1016,13 @@ export default function LandingPage() {
                   <button
                     type="button"
                     onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                    className="w-full p-5 text-left flex items-center justify-between gap-4 font-bold text-slate-900 dark:text-white text-sm sm:text-base cursor-pointer"
+                    className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-3 sm:gap-4 font-bold text-slate-900 dark:text-white text-xs sm:text-base cursor-pointer"
                   >
                     <span>{faq.q}</span>
                     {isOpen ? <ChevronUp size={18} className="shrink-0 text-blue-600" /> : <ChevronDown size={18} className="shrink-0 text-slate-400" />}
                   </button>
                   {isOpen && (
-                    <div className="px-5 pb-5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-3">
+                    <div className="px-4 pb-4 sm:px-5 sm:pb-5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-3">
                       {faq.a}
                     </div>
                   )}
@@ -1034,35 +1034,35 @@ export default function LandingPage() {
       </section>
 
       {/* Final Conversion CTA Banner */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 text-white relative overflow-hidden">
-        <div className="max-w-4xl mx-auto text-center space-y-8 relative z-10">
+      <section className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950 text-white relative overflow-hidden">
+        <div className="max-w-4xl mx-auto text-center space-y-6 sm:space-y-8 relative z-10">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 border border-blue-400/30 rounded-full text-blue-300 text-xs font-bold uppercase tracking-wider">
             <Zap size={14} />
             <span>Ready in Seconds</span>
           </div>
 
-          <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight">
+          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight">
             Need a DOT or FAA CPAP Letter Today?
           </h2>
 
-          <p className="text-slate-300 text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
+          <p className="text-slate-300 text-sm sm:text-lg max-w-2xl mx-auto leading-relaxed px-2">
             Upload your sleep PDF now and receive an official certified determination letter in 5 seconds. Avoid costly medical holds and get certified without stress.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-2 sm:pt-4 w-full max-w-md sm:max-w-none mx-auto">
             <button
               type="button"
               onClick={() => navigate('/login?mode=signup')}
-              className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-500 text-white text-base transition-all shadow-xl shadow-blue-500/30 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full sm:w-auto px-6 sm:px-8 py-3.5 sm:py-4 rounded-2xl font-bold bg-blue-600 hover:bg-blue-500 text-white text-sm sm:text-base transition-all shadow-xl shadow-blue-500/30 flex items-center justify-center gap-2 cursor-pointer min-h-[48px]"
             >
               <span>Get Started Now ($9 / Free Starter)</span>
-              <ArrowRight size={18} />
+              <ArrowRight size={18} className="shrink-0" />
             </button>
 
             <button
               type="button"
               onClick={() => navigate('/login?mode=signin')}
-              className="w-full sm:w-auto px-6 py-4 rounded-2xl font-bold bg-slate-800 hover:bg-slate-700 text-white text-base border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full sm:w-auto px-5 sm:px-6 py-3.5 sm:py-4 rounded-2xl font-bold bg-slate-800 hover:bg-slate-700 text-white text-sm sm:text-base border border-slate-700 transition-all flex items-center justify-center gap-2 cursor-pointer min-h-[48px]"
             >
               <span>Examiner / Clinic Sign In</span>
             </button>

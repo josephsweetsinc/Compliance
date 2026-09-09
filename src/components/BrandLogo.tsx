@@ -96,7 +96,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       {showText && (
         <div className="flex flex-col">
           <div className="flex items-center gap-1.5">
-            <span className="font-extrabold text-2xl tracking-tight text-slate-950 dark:text-white">
+            <span className="font-extrabold text-xl sm:text-2xl tracking-tight text-slate-950 dark:text-white">
               Comply<span className="text-blue-600 dark:text-blue-400">Zzz</span>
             </span>
             {subtitle && (

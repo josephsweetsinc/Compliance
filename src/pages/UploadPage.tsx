@@ -444,7 +444,7 @@ export default function UploadPage({
             <span className="text-[10px] text-slate-400 italic">Optional patient identifiers</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-500">Date of Birth</label>
               <input
@@ -452,7 +452,7 @@ export default function UploadPage({
                 name="dob"
                 value={patientDetails.dob}
                 onChange={handleDetailChange}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2.5 text-base sm:text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
               />
             </div>
             <div className="space-y-1.5">
@@ -463,7 +463,7 @@ export default function UploadPage({
                 name="licenseNumber"
                 value={patientDetails.licenseNumber}
                 onChange={handleDetailChange}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2.5 text-base sm:text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
               />
             </div>
             <div className="space-y-1.5">
@@ -475,7 +475,7 @@ export default function UploadPage({
                 value={patientDetails.licenseState}
                 onChange={handleDetailChange}
                 maxLength={2}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase font-sans"
+                className="w-full bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2.5 text-base sm:text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all uppercase font-sans"
               />
             </div>
           </div>
@@ -486,7 +486,7 @@ export default function UploadPage({
                 <Mail size={15} className="text-slate-400" />
                 Email Alerts on Complete
               </label>
-              <label className="relative inline-flex items-center cursor-pointer">
+              <label className="relative inline-flex items-center cursor-pointer min-h-[36px] min-w-[48px]">
                 <input 
                   type="checkbox" 
                   name="enabled"
@@ -511,7 +511,7 @@ export default function UploadPage({
                     placeholder="Enter email for processed alert..."
                     value={notificationSettings.email}
                     onChange={handleNotificationChange}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
+                    className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-10 pr-4 py-2.5 text-base sm:text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
                   />
                 </div>
               </div>
@@ -547,7 +547,7 @@ export default function UploadPage({
             /* Multi-File Primary Drop Zone using react-dropzone */
             <div
               {...getRootProps()}
-              className={`border-2 border-dashed rounded-3xl p-10 sm:p-14 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden select-none ${
+              className={`border-2 border-dashed rounded-3xl p-6 sm:p-14 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden select-none active:scale-[0.99] ${
                 isDragReject
                   ? 'border-rose-500 bg-rose-50 ring-4 ring-rose-100'
                   : isDragAccept || isDragActive
@@ -557,43 +557,43 @@ export default function UploadPage({
             >
               <input {...getInputProps()} />
 
-              <div className={`p-4 rounded-2xl mb-4 transition-all duration-300 ${
+              <div className={`p-3.5 sm:p-4 rounded-2xl mb-3 sm:mb-4 transition-all duration-300 ${
                 isDragReject
                   ? 'bg-rose-600 text-white'
                   : isDragActive 
                   ? 'bg-blue-600 text-white scale-110 shadow-lg animate-bounce' 
                   : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100 group-hover:scale-105'
               }`}>
-                <FileUp size={36} />
+                <FileUp size={32} className="sm:w-9 sm:h-9" />
               </div>
 
-              <p className={`text-lg font-bold mb-1 transition-colors ${
+              <p className={`text-base sm:text-lg font-bold mb-1 text-center transition-colors ${
                 isDragReject ? 'text-rose-700' : isDragActive ? 'text-blue-700' : 'text-slate-800'
               }`}>
                 {isDragReject
                   ? 'Invalid file type (PDF required)'
                   : isDragActive
                   ? 'Drop CPAP PDF reports to queue'
-                  : 'Select or Drag & Drop CPAP PDF Reports'}
+                  : 'Tap to Select or Drop CPAP Reports'}
               </p>
 
-              <p className="text-slate-500 text-sm mb-4 text-center max-w-md">
+              <p className="text-slate-500 text-xs sm:text-sm mb-4 text-center max-w-md px-2">
                 {isDragActive
                   ? 'Release to load documents into your analysis queue'
-                  : 'Select multiple CPAP machine PDF reports at once for bulk compliance extraction'}
+                  : 'Upload single or multiple CPAP machine PDF reports for instant automated compliance checking'}
               </p>
 
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100/80 border border-blue-200 px-3 py-1 rounded-lg">
-                  <Sparkles size={13} className="text-blue-600" />
-                  Supports ResMed AirView, Philips Care Orchestrator & DeVilbiss
+              <div className="flex flex-wrap items-center justify-center gap-2 px-2 text-center">
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100/80 border border-blue-200 px-3 py-1.5 rounded-lg">
+                  <Sparkles size={13} className="text-blue-600 shrink-0" />
+                  <span>ResMed AirView, Philips Care Orchestrator & DeVilbiss</span>
                 </span>
               </div>
 
-              <p className="mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl font-medium select-none">
+              <p className="mt-4 sm:mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl font-medium select-none">
                 <span className="text-slate-600">🔒 Secure browser extraction</span>
                 <span className="text-slate-300 hidden sm:inline">•</span>
-                <span className="text-slate-600">Up to 10 files per batch processing</span>
+                <span className="text-slate-600">Up to 10 files per batch</span>
               </p>
             </div>
           ) : (
@@ -672,10 +672,11 @@ export default function UploadPage({
                               e.stopPropagation();
                               removeFile(i);
                             }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            className="p-2.5 -m-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
                             title="Remove file from queue"
+                            aria-label="Remove file from queue"
                           >
-                            <X size={16} />
+                            <X size={18} />
                           </button>
                         )}
                         {fileResults[i]?.status === 'success' && (
@@ -722,7 +723,7 @@ export default function UploadPage({
                       type="button"
                       onClick={openFileSelector}
                       disabled={files.length >= 10}
-                      className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3.5 px-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer text-sm"
+                      className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3.5 px-4 rounded-2xl min-h-[48px] transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer text-sm"
                     >
                       <Plus size={18} />
                       <span>Add More Files</span>
@@ -731,7 +732,7 @@ export default function UploadPage({
                     <button
                       type="button"
                       onClick={() => handleUpload(false)}
-                      className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
+                      className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-2xl min-h-[48px] transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
                     >
                       <CheckCircle2 size={18} />
                       <span>Process {files.length} {files.length === 1 ? 'Report' : 'Reports'} Now</span>

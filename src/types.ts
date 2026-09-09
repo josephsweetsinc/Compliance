@@ -33,6 +33,7 @@ export interface ComplianceMetrics {
   total_days: number;
   days_used_4_plus_hours: number;
   usage_days_percent: number;
+  compliance_percentage?: number;
   average_usage_hours: number;
   ahi: number;
 }
