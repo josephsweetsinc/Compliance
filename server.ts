@@ -197,6 +197,27 @@ function getTwilio() {
   return twilio(sid, token);
 }
 
+async function sendTwilioSms(toPhone: string, bodyText: string) {
+  const tw = getTwilio();
+  const fromNumber = process.env.TWILIO_PHONE_NUMBER?.trim() || '';
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || '';
+
+  const messageOptions: any = {
+    to: toPhone,
+    body: bodyText,
+  };
+
+  if (messagingServiceSid) {
+    messageOptions.messagingServiceSid = messagingServiceSid;
+  } else if (fromNumber) {
+    messageOptions.from = fromNumber;
+  } else {
+    throw new Error('TWILIO_PHONE_NUMBER or TWILIO_MESSAGING_SERVICE_SID environment variable is required to send SMS.');
+  }
+
+  return await tw.messages.create(messageOptions);
+}
+
 function getAppUrl(req?: express.Request): string {
   // 1. If req is provided, prioritize dynamic host detection from request headers
   if (req) {
@@ -422,183 +443,184 @@ async function startServer() {
 
   // API routes
   app.post("/api/send-notification", async (req, res) => {
-    const { email, patientName, status, reportId, pdfBase64, recipientRole, customMessage } = req.body;
+    const { email, phone, reportId, customMessage } = req.body;
 
-    console.log('Processing notification request for:', email, 'with role:', recipientRole);
+    console.log('Processing secure de-identified notification request. Email:', email ? 'provided' : 'none', 'Phone:', phone ? 'provided' : 'none');
 
-    if (!email || !patientName || !status || !reportId) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(String(email).trim())) {
-      return res.status(400).json({ error: "Invalid email address format" });
+    if (!reportId || (!email && !phone)) {
+      return res.status(400).json({ error: "Missing required fields: reportId and at least one destination (email or phone) are required." });
     }
 
     const appUrl = getAppUrl(req);
+    const reportUrl = `${appUrl}/report/${reportId}`;
+    const results: { email?: any; sms?: any } = {};
+
+    // 1. Handle SMS Dispatch if phone is provided
+    if (phone && String(phone).trim()) {
+      const cleanPhone = String(phone).replace(/[^\d+]/g, '').trim();
+      if (cleanPhone.length >= 10) {
+        try {
+          const smsText = `A new compliance determination is ready. Log in to your secure ComplyZzz portal to view: ${reportUrl}`;
+          const smsResult = await sendTwilioSms(cleanPhone, smsText);
+          results.sms = { success: true, sid: smsResult.sid };
+          console.log(`De-identified SMS sent to ${cleanPhone}`);
+        } catch (smsErr: any) {
+          console.error('Twilio SMS error in send-notification:', smsErr.message);
+          // If only phone was requested, return error
+          if (!email) {
+            const status = (smsErr.message.includes('TWILIO_ACCOUNT_SID') || smsErr.message.includes('TWILIO_PHONE_NUMBER')) ? 401 : 500;
+            return res.status(status).json({
+              success: false,
+              error: smsErr.message || 'Failed to dispatch SMS notification.',
+            });
+          }
+          results.sms = { success: false, error: smsErr.message };
+        }
+      }
+    }
+
+    // 2. Handle Email Dispatch if email is provided
+    if (email && String(email).trim()) {
+      const safeEmail = String(email).trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(safeEmail)) {
+        if (!phone) {
+          return res.status(400).json({ error: "Invalid email address format" });
+        }
+      } else {
+        try {
+          const resend = getResend();
+          const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'reports@reports.complyzzz.com';
+
+          const customMessageHtml = customMessage && String(customMessage).trim().length > 0
+            ? `
+              <div style="margin: 20px 0; padding: 14px 18px; border-left: 4px solid #2563eb; background-color: #f8fafc; border-radius: 4px 12px 12px 4px;">
+                <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: bold; color: #2563eb; text-transform: uppercase; letter-spacing: 0.05em;">Dispatch Note:</p>
+                <p style="margin: 0; color: #1e293b; font-size: 14px; font-style: italic; line-height: 1.5;">"${String(customMessage).trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</p>
+              </div>
+            `
+            : '';
+
+          // Strictly de-identified HIPAA-compliant template:
+          // No patient name, no diagnosis, no CPAP metrics
+          const emailHtml = `
+            <div style="font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+              <!-- Header Banner -->
+              <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
+                <span style="font-size: 10px; font-weight: 800; color: #2563eb; text-transform: uppercase; letter-spacing: 0.15em; display: block; margin-bottom: 4px;">ComplyZzz Secure Notification</span>
+                <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Compliance Determination Ready</h1>
+              </div>
+
+              <!-- Required HIPAA De-identified Notice -->
+              <p style="color: #1e293b; font-size: 16px; line-height: 1.6; margin-top: 0; margin-bottom: 24px;">
+                A new compliance determination is ready. Log in to your secure ComplyZzz portal to view.
+              </p>
+              
+              <!-- Optional Note -->
+              ${customMessageHtml}
+
+              <!-- Secure Portal Access Button -->
+              <div style="margin-top: 28px; text-align: center; margin-bottom: 28px;">
+                <a href="${reportUrl}" style="display: inline-block; padding: 14px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(37,99,235,0.2);">
+                  Log In to Secure Portal
+                </a>
+              </div>
+              
+              <!-- HIPAA & Privacy Safeguard Note -->
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: left; color: #64748b; font-size: 11px; line-height: 1.5; margin-bottom: 20px;">
+                <strong style="color: #334155; font-size: 11px;">🔒 HIPAA & MEDICAL PRIVACY SAFEGUARD:</strong><br />
+                To protect patient health information (PHI) and comply with federal confidentiality standards, driver/patient names, clinical diagnoses, and CPAP metrics are never included in email or text notifications. Please log in to your secure ComplyZzz account to review the complete certified determination.
+              </div>
+
+              <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
+              <div style="text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.6;">
+                <p style="margin: 0; font-weight: bold;">ComplyZzz Sleep Analytics Portal</p>
+                <p style="margin: 4px 0 0 0;">This is an automated administrative notification. Please do not reply directly to this email.</p>
+              </div>
+            </div>
+          `;
+
+          const { data, error } = await sendResendEmail(resend, {
+            fromEmail,
+            to: safeEmail,
+            subject: '[ComplyZzz] A new compliance determination is ready',
+            html: emailHtml,
+          });
+
+          if (error) {
+            console.error('Resend API Error in send-notification:', error.message);
+            if (!phone) {
+              return res.status(500).json({ 
+                success: false, 
+                error: error.message || 'Failed to send email via Resend.',
+                details: error.message || 'Validation Error'
+              });
+            }
+            results.email = { success: false, error: error.message };
+          } else {
+            console.log(`De-identified email notification sent successfully to ${safeEmail}`);
+            results.email = { success: true, data };
+          }
+        } catch (err: any) {
+          console.error('Email Notification Service Error:', err.message);
+          if (!phone) {
+            const status = err.message.includes('RESEND_API_KEY') ? 401 : 500;
+            return res.status(status).json({ 
+              success: false, 
+              error: 'An error occurred while processing the notification.',
+              message: err.message 
+            });
+          }
+          results.email = { success: false, error: err.message };
+        }
+      }
+    }
+
+    res.json({ success: true, results });
+  });
+
+  // Dedicated SMS Notification Route
+  app.post("/api/send-sms", async (req, res) => {
+    const { phone, reportId } = req.body;
+
+    if (!phone || !reportId) {
+      return res.status(400).json({ error: "Missing required phone or reportId fields." });
+    }
+
+    const cleanPhone = String(phone).replace(/[^\d+]/g, '').trim();
+    if (cleanPhone.length < 10) {
+      return res.status(400).json({ error: "Invalid phone number format." });
+    }
+
+    const appUrl = getAppUrl(req);
+    const reportUrl = `${appUrl}/report/${reportId}`;
+
+    // De-identified HIPAA compliant notification text:
+    // Never shows patient's name, diagnosis, or CPAP metrics
+    const smsText = `A new compliance determination is ready. Log in to your secure ComplyZzz portal to view: ${reportUrl}`;
 
     try {
-      const resend = getResend();
-      const reportUrl = `${appUrl}/report/${reportId}`;
-      
-      // Clean inputs
-      const safePatientName = (patientName as string).replace(/[\n\r]/g, '').trim();
-      const safeStatus = (status as string).trim();
-      const safeEmail = (email as string).trim();
-      const role = (recipientRole as string || 'custom').toLowerCase();
-      const isCompliant = safeStatus === 'Compliant';
-
-      const attachments = [];
-      if (pdfBase64 && typeof pdfBase64 === "string") {
-        let base64Content = pdfBase64;
-        if (base64Content.includes("base64,")) {
-          base64Content = base64Content.split("base64,")[1];
-        }
-        base64Content = base64Content.trim();
-        const pdfBuffer = Buffer.from(base64Content, 'base64');
-
-        // Log validation check for PDF header %PDF
-        const pdfHeader = pdfBuffer.toString('ascii', 0, 5);
-        console.log(`[PDF Attachment Check] Header: '${pdfHeader}', size: ${pdfBuffer.length} bytes`);
-
-        attachments.push({
-          filename: `DOT_Compliance_Letter_${safePatientName.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
-          content: pdfBuffer,
-        });
-      }
-
-      // Customize subject, greeting, and introduction based on recipient role
-      let subject = `CPAP Compliance Report: ${safePatientName} - ${safeStatus}`;
-      let emailHeader = "CPAP Compliance Verification";
-      let greeting = "Hello,";
-      let introParagraph = `A new CPAP compliance report has been successfully processed and analyzed. The certified compliance letter for <strong>${safePatientName}</strong> (Status: <strong>${safeStatus}</strong>) is attached for your reference.`;
-
-      if (role === 'driver' || role === 'patient') {
-        subject = `Your DOT CPAP Compliance Certificate: ${safePatientName} (${safeStatus})`;
-        emailHeader = "Driver CPAP Compliance Report";
-        greeting = `Dear ${safePatientName},`;
-        introParagraph = isCompliant
-          ? `Congratulations! Your CPAP therapy usage has been analyzed and meets the DOT/FMCSA compliance guidelines. Your certified compliance letter is attached to this email. You may download, print, or show this PDF at your DOT physical examination.`
-          : `Your CPAP therapy usage has been analyzed. Unfortunately, your current records indicate that your usage does not yet meet the 70% threshold (at least 4 hours per night on 70% of days) required by DOT/FMCSA guidelines. Your certified report is attached for your clinical review.`;
-      } else if (role === 'examiner' || role === 'clinic') {
-        subject = `Official CPAP Compliance Audit: ${safePatientName} - ${safeStatus}`;
-        emailHeader = "Medical Examiner Compliance Verification";
-        greeting = "Dear Medical Examiner / Certification Official,";
-        introParagraph = `Please find attached the certified CPAP compliance letter and therapy audit for commercial operator <strong>${safePatientName}</strong>. This document certifies that the operator is <strong>${safeStatus}</strong> with the physical qualifications standard of the FMCSA.`;
-      } else if (role === 'employer' || role === 'safety') {
-        subject = `Safety Compliance Alert: ${safePatientName} CPAP Status (${safeStatus})`;
-        emailHeader = "Employer Safety & Health Compliance Alert";
-        greeting = "Dear Fleet Representative / Safety Officer,";
-        introParagraph = `This is to notify you that CPAP compliance monitoring metrics have been successfully processed for operator <strong>${safePatientName}</strong>. The operator's compliance status is verified as <strong>${safeStatus}</strong>. The complete, official certified letter is attached.`;
-      }
-
-      const statusColor = isCompliant ? '#10b981' : '#f43f5e';
-      const statusBgColor = isCompliant ? '#ecfdf5' : '#fff1f2';
-      const statusTextColor = isCompliant ? '#065f46' : '#9f1239';
-
-      const customMessageHtml = customMessage && String(customMessage).trim().length > 0
-        ? `
-          <div style="margin: 20px 0; padding: 14px 18px; border-left: 4px solid #3b82f6; background-color: #eff6ff; border-radius: 4px 12px 12px 4px;">
-            <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: bold; color: #2563eb; text-transform: uppercase; letter-spacing: 0.05em;">Personalized Dispatch Note:</p>
-            <p style="margin: 0; color: #1e293b; font-size: 14px; font-style: italic; line-height: 1.5;">"${String(customMessage).trim().replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</p>
-          </div>
-        `
-        : '';
-
-      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'reports@reports.complyzzz.com';
-
-      const emailHtml = `
-          <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
-            <!-- Header Banner -->
-            <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
-              <span style="font-size: 10px; font-weight: 800; color: #5850c2; text-transform: uppercase; letter-spacing: 0.15em; display: block; margin-bottom: 4px;">ComplyZzz Certified System</span>
-              <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0; tracking-tight: -0.02em;">${emailHeader}</h1>
-            </div>
-
-            <p style="color: #1e293b; font-size: 16px; font-weight: 600; margin-top: 0; margin-bottom: 12px;">${greeting}</p>
-            <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-top: 0; margin-bottom: 20px;">${introParagraph}</p>
-            
-            <!-- Optional Custom Message from Operator -->
-            ${customMessageHtml}
-
-            <!-- Summary Box -->
-            <div style="background-color: #f8fafc; border: 1px solid #f1f5f9; padding: 20px; border-radius: 12px; margin: 24px 0;">
-              <h2 style="color: #0f172a; font-size: 16px; font-weight: 700; margin-top: 0; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Compliance Assessment</h2>
-              
-              <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #475569;">
-                <tr>
-                  <td style="padding: 6px 0; font-weight: 600; color: #64748b; width: 40%;">Operator Name</td>
-                  <td style="padding: 6px 0; font-weight: 700; color: #0f172a;">${safePatientName}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; font-weight: 600; color: #64748b;">Regulatory Status</td>
-                  <td style="padding: 6px 0;">
-                    <span style="background-color: ${statusBgColor}; color: ${statusTextColor}; border: 1px solid rgba(${isCompliant ? '16,185,129' : '244,63,94'},0.2); padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 12px; text-transform: uppercase;">
-                      ${safeStatus}
-                    </span>
-                  </td>
-                </tr>
-              </table>
-            </div>
-
-            <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">
-              The certified DOT CPAP Compliance report is attached to this message as an official <strong>PDF document</strong>. For security and medical privacy compliance, all report records are transmitted using encrypted SSL/TLS protocols and stored securely in your portal.
-            </p>
-            
-            <div style="margin-top: 32px; text-align: center; margin-bottom: 16px;">
-              <a href="${reportUrl}" style="display: inline-block; padding: 14px 28px; background-color: #5850c2; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(88,80,194,0.2);">Open Compliance Dashboard</a>
-            </div>
-            
-            <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 32px 0;" />
-            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: left; color: #64748b; font-size: 11px; line-height: 1.5; margin-bottom: 20px;">
-              <strong style="color: #334155; font-size: 11px;">⚖️ REGULATORY & CLINICAL DECISION SUPPORT DISCLAIMER:</strong><br />
-              ComplyZzz provides automated data extraction, auditing, and report formatting. It does not provide medical treatment or replace the clinical judgment of a certified NRCME Medical Examiner or FAA AME. All adherence metrics must be independently verified by the credentialed examiner prior to signing official examination certificates.
-            </div>
-            <div style="text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.6;">
-              <p style="margin: 0; font-weight: bold;">ComplyZzz Sleep Analytics Portal</p>
-              <p style="margin: 4px 0 0 0;">This email was sent on behalf of your healthcare/safety administration program using the Resend platform.</p>
-            </div>
-          </div>
-      `;
-
-      const { data, error } = await sendResendEmail(resend, {
-        fromEmail,
-        to: safeEmail,
-        subject,
-        html: emailHtml,
-        attachments
-      });
-
-      if (error) {
-        console.error('Resend API Detailed Error:', JSON.stringify(error, null, 2));
-        return res.status(500).json({ 
-          success: false, 
-          error: error.message || 'Failed to send email via Resend.',
-          details: error.message || 'Validation Error'
-        });
-      }
-
-      console.log(`Notification sent successfully to ${safeEmail}`);
-      res.json({ success: true, data });
+      const message = await sendTwilioSms(cleanPhone, smsText);
+      console.log(`De-identified SMS notification sent to ${cleanPhone}: SID ${message.sid}`);
+      res.json({ success: true, sid: message.sid });
     } catch (err: any) {
-      console.error('Notification Service Error:', err.message);
-      
-      const status = err.message.includes('RESEND_API_KEY') ? 401 : 500;
-      res.status(status).json({ 
-        success: false, 
-        error: 'An error occurred while processing the notification.',
-        message: err.message 
+      console.error('Twilio SMS dispatch error:', err.message);
+      const status = (err.message.includes('TWILIO_ACCOUNT_SID') || err.message.includes('TWILIO_PHONE_NUMBER')) ? 401 : 500;
+      res.status(status).json({
+        success: false,
+        error: err.message || 'Failed to send SMS notification via Twilio.',
       });
     }
   });
 
+  // Automatic user summary endpoint triggered upon report processing
   app.post("/api/send-user-summary", async (req, res) => {
     const { email, report } = req.body;
 
     console.log('Processing automatic user summary email for:', email);
 
-    if (!email || !report || !report.id || !report.metrics) {
-      return res.status(400).json({ error: "Missing required fields" });
+    if (!email || !report || !report.id) {
+      return res.status(400).json({ error: "Missing required fields: email and report.id" });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -611,98 +633,39 @@ async function startServer() {
     try {
       const resend = getResend();
       const reportUrl = `${appUrl}/report/${report.id}`;
-      
-      // Clean and extract data safely
       const safeEmail = (email as string).trim();
-      const patientName = String(report.patientName || report.metrics.patient_name || 'N/A').replace(/[\n\r]/g, '').trim();
-      const status = String(report.status || 'Non-Compliant').trim();
-      const metrics = report.metrics;
 
-      const isCompliant = status === 'Compliant';
-      const statusColor = isCompliant ? '#10b981' : '#f43f5e';
-      const statusBgColor = isCompliant ? '#ecfdf5' : '#fff1f2';
-      const statusTextColor = isCompliant ? '#065f46' : '#9f1239';
-      const statusLabel = isCompliant ? 'Compliant - Passes Guidelines' : 'Does Not Meet Standards';
-
+      // De-identified HIPAA-compliant template:
+      // Never shows patient's name, diagnosis, or CPAP metrics
       const htmlContent = `
-        <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+        <div style="font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
           <!-- Header -->
-          <div style="border-bottom: 1px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 24px;">
-            <span style="font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-bottom: 4px;">Commercial Transport Tracker</span>
-            <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0;">CPAP Compliance Assessment Summary</h1>
+          <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
+            <span style="font-size: 10px; font-weight: 800; color: #2563eb; letter-spacing: 0.15em; text-transform: uppercase; display: block; margin-bottom: 4px;">ComplyZzz Security Protocol</span>
+            <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Compliance Determination Ready</h1>
           </div>
           
-          <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-top: 0; margin-bottom: 24px;">
-            Hello, operator. The CPAP report upload of <strong>${patientName}</strong> has been successfully processed and verified. Below is the automated summary notification for your clinical/administrative records:
+          <p style="color: #1e293b; font-size: 16px; line-height: 1.6; margin-top: 0; margin-bottom: 24px;">
+            A new compliance determination is ready. Log in to your secure ComplyZzz portal to view.
           </p>
 
-          <!-- Status Card -->
-          <div style="background-color: ${statusBgColor}; border: 1px solid ${statusColor}40; border-radius: 12px; padding: 18px; margin-bottom: 24px; text-align: center;">
-            <p style="margin: 0; font-size: 11px; font-weight: 700; color: ${statusTextColor}; text-transform: uppercase; letter-spacing: 0.05em;">Initial Determination</p>
-            <h2 style="margin: 4px 0 0 0; font-size: 24px; font-weight: 850; color: ${statusTextColor};">
-              ${statusLabel}
-            </h2>
-          </div>
-
-          <!-- Report Details & Metrics -->
-          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-            <h3 style="color: #0f172a; font-size: 14px; font-weight: 700; margin-top: 0; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; text-transform: uppercase; letter-spacing: 0.03em;">Assessment Details</h3>
-            
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-              <tr style="border-bottom: 1px solid #f1f5f9;">
-                <td style="padding: 8px 0; color: #64748b; font-weight: 500;">Driver / Pilot:</td>
-                <td style="padding: 8px 0; color: #011627; font-weight: 600; text-align: right;">${patientName}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #f1f5f9;">
-                <td style="padding: 8px 0; color: #64748b; font-weight: 500;">Evaluation Period:</td>
-                <td style="padding: 8px 0; color: #011627; font-weight: 600; text-align: right;">${metrics.report_start_date} to ${metrics.report_end_date}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #f1f5f9;">
-                <td style="padding: 8px 0; color: #64748b; font-weight: 500;">CPAP Device:</td>
-                <td style="padding: 8px 0; color: #011627; font-weight: 600; text-align: right;">${metrics.device_type || 'CPAP System'}</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #f1f5f9;">
-                <td style="padding: 8px 0; color: #64748b; font-weight: 500;">Consecutive Days:</td>
-                <td style="padding: 8px 0; color: #011627; font-weight: 600; text-align: right;">${metrics.total_days} nights</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #f1f5f9;">
-                <td style="padding: 8px 0; color: #64748b; font-weight: 500;">Nights with Use &ge; 4 hrs:</td>
-                <td style="padding: 8px 0; color: #011627; font-weight: 600; text-align: right;">${metrics.days_used_4_plus_hours} nights (${metrics.usage_days_percent}%)</td>
-              </tr>
-              <tr style="border-bottom: 1px solid #f1f5f9;">
-                <td style="padding: 8px 0; color: #64748b; font-weight: 500;">Avg Usage per Night:</td>
-                <td style="padding: 8px 0; color: #011627; font-weight: 600; text-align: right;">${metrics.average_usage_hours} hours</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0 0 0; color: #64748b; font-weight: 500;">Residual AHI:</td>
-                <td style="padding: 8px 0 0 0; color: ${metrics.ahi <= 5 ? '#059669' : '#dc2626'}; font-weight: 700; text-align: right;">${metrics.ahi} / hr</td>
-              </tr>
-            </table>
-          </div>
-
-          <!-- Dynamic Action Link -->
+          <!-- Secure Action Link -->
           <div style="text-align: center; margin-bottom: 28px; margin-top: 24px;">
-            <a href="${reportUrl}" style="display: inline-block; padding: 13px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px;">
-              Access Certified Report
+            <a href="${reportUrl}" style="display: inline-block; padding: 13px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(37,99,235,0.2);">
+              Log In to Secure Portal
             </a>
           </div>
 
           <!-- Privacy & Security Notice -->
-          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 24px; font-size: 13px; color: #475569; line-height: 1.5;">
-            <strong>🔒 CONFIDENTIALITY & PRIVACY NOTICE</strong><br />
-            This compliance summary contains confidential medical and transport safety data. Access is restricted to verified healthcare and safety personnel. You can view, manage, or archive this official report directly in your portal.
-          </div>
-
-          <!-- Regulatory Compliance & Clinical Disclaimer -->
-          <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: 12px; padding: 14px; margin-bottom: 24px; font-size: 11px; color: #78350f; line-height: 1.5;">
-            <strong>⚖️ REGULATORY & CLINICAL DISCLAIMER:</strong><br />
-            ComplyZzz provides automated data extraction, auditing, and report formatting. It does not provide medical treatment or replace the clinical judgment of a certified NRCME Medical Examiner or FAA AME.
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 24px; font-size: 11px; color: #64748b; line-height: 1.5;">
+            <strong>🔒 HIPAA & MEDICAL PRIVACY SAFEGUARD:</strong><br />
+            To protect Protected Health Information (PHI), patient names, diagnosis descriptions, and CPAP compliance metrics are de-identified in all automated notification dispatches. Authorized personnel can view the complete clinical audit after signing into the encrypted portal.
           </div>
 
           <!-- Footer -->
-          <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 28px 0 20px 0;" />
+          <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0 16px 0;" />
           <p style="color: #94a3b8; font-size: 11px; text-align: center; line-height: 1.6; margin: 0;">
-            This is an automated administrative notification sent directly to you as the verified operator of this CPAP compliance portal. Please do not reply directly to this email.
+            This is an automated administrative notification sent to verified portal users. Please do not reply directly to this email.
           </p>
         </div>
       `;
@@ -712,7 +675,7 @@ async function startServer() {
       const { data, error } = await sendResendEmail(resend, {
         fromEmail,
         to: safeEmail,
-        subject: `[CPAP Portal] Processed: ${patientName} (${status})`,
+        subject: '[ComplyZzz] A new compliance determination is ready',
         html: htmlContent,
       });
 
@@ -725,7 +688,7 @@ async function startServer() {
         });
       }
 
-      console.log(`Automatic user summary email sent successfully to ${safeEmail}`);
+      console.log(`De-identified automatic user summary email sent successfully to ${safeEmail}`);
       res.json({ success: true, data });
     } catch (err: any) {
       console.error('Automatic summary notification service error:', err.message);

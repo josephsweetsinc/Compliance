@@ -6,7 +6,7 @@ import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
 import { LegalDisclaimer } from '../components/LegalDisclaimer';
-import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle, Smartphone, MessageSquare } from 'lucide-react';
 
 export default function ResultPage({ profile }: { profile: UserProfile }) {
   const { id } = useParams<{ id: string }>();
@@ -21,8 +21,9 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   const [emailErrorDetails, setEmailErrorDetails] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  // Multi-Stakeholder Email Dispatch States
+  // Multi-Stakeholder Email & SMS Dispatch States
   const [driverEmail, setDriverEmail] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
   const [examinerEmail, setExaminerEmail] = useState('');
   const [employerEmail, setEmployerEmail] = useState('');
   const [customStakeholderName, setCustomStakeholderName] = useState('');
@@ -39,6 +40,10 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     examiner: { status: 'idle' },
     employer: { status: 'idle' },
     custom: { status: 'idle' },
+  });
+
+  const [smsStatus, setSmsStatus] = useState<{ status: 'idle' | 'sending' | 'success' | 'error'; error?: string }>({
+    status: 'idle',
   });
 
   // Expiration countdown removed for accurate HIPAA compliance record retention
@@ -70,11 +75,14 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     fetchReport();
   }, [id, profile.uid]);
 
-  // Load remembered stakeholder emails on report change
+  // Load remembered stakeholder emails & phone on report change
   useEffect(() => {
     if (report) {
       const storedDriver = localStorage.getItem(`email_driver_${report.patientName}`);
       if (storedDriver) setDriverEmail(storedDriver);
+
+      const storedDriverPhone = localStorage.getItem(`phone_driver_${report.patientName}`);
+      if (storedDriverPhone) setDriverPhone(storedDriverPhone);
       
       const storedExaminer = localStorage.getItem(`email_examiner_${report.patientName}`);
       if (storedExaminer) setExaminerEmail(storedExaminer);
@@ -83,6 +91,46 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       if (storedEmployer) setEmployerEmail(storedEmployer);
     }
   }, [report]);
+
+  const sendStakeholderSms = async () => {
+    if (!report) return;
+    if (!driverPhone || !driverPhone.trim()) {
+      setSmsStatus({ status: 'error', error: 'Valid phone number is required.' });
+      return;
+    }
+
+    setSmsStatus({ status: 'sending' });
+
+    try {
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+
+      const response = await fetch('/api/send-sms', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          phone: driverPhone.trim(),
+          reportId: report.id,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to dispatch SMS notification.');
+      }
+
+      setSmsStatus({ status: 'success' });
+      setTimeout(() => {
+        setSmsStatus({ status: 'idle' });
+      }, 4000);
+    } catch (err: any) {
+      console.error('SMS dispatch error:', err);
+      setSmsStatus({ status: 'error', error: err.message || 'SMS Error' });
+    }
+  };
 
   const sendStakeholderEmail = async (recipientType: 'driver' | 'examiner' | 'employer' | 'custom') => {
     if (!report) return;
@@ -722,29 +770,39 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
 
         {/* Sidebar Info */}
         <div className="space-y-6">
-          {/* Stakeholder Email Dispatch Card */}
+          {/* Stakeholder Secure Notification Dispatch Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <Mail size={18} className="text-blue-600" />
-                <span>Stakeholder Dispatch</span>
+                <Shield size={18} className="text-blue-600" />
+                <span>Secure Stakeholder Dispatch</span>
               </h3>
-              <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest">
-                Resend API
+              <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1">
+                <Check size={10} /> HIPAA Safe
               </span>
             </div>
 
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Dispatch this certified DOT compliance report directly to the driver, medical examiner, or fleet manager via Resend.
-            </p>
+            {/* HIPAA Safeguard Banner */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                <Shield size={13} className="text-blue-600" />
+                <span>Zero-PHI Notification Policy</span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                To protect Protected Health Information (PHI), all notification emails and SMS alerts are strictly de-identified. Patient names, clinical diagnoses, and CPAP metrics are never transmitted via email or text.
+              </p>
+              <div className="bg-white rounded-xl border border-slate-200 p-2.5 mt-1 text-[11px] text-slate-700 font-mono">
+                &ldquo;A new compliance determination is ready. Log in to your secure ComplyZzz portal to view.&rdquo;
+              </div>
+            </div>
 
             <div className="space-y-4">
-              {/* Driver Section */}
+              {/* Driver Email Section */}
               <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <User size={12} className="text-blue-500" />
-                    Driver / Patient
+                    <Mail size={12} className="text-blue-500" />
+                    Driver Email Alert
                   </span>
                   {emailStatuses.driver.status === 'success' && (
                     <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
@@ -781,11 +839,58 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                 )}
               </div>
 
+              {/* Driver SMS Section */}
+              <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Smartphone size={12} className="text-emerald-500" />
+                    Driver SMS Alert (Twilio)
+                  </span>
+                  {smsStatus.status === 'success' && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                      <Check size={10} /> SMS Sent!
+                    </span>
+                  )}
+                  {smsStatus.status === 'error' && (
+                    <span className="text-[10px] text-rose-600 font-bold" title={smsStatus.error}>
+                      SMS Failed
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    placeholder="+1 (555) 000-0000"
+                    value={driverPhone}
+                    onChange={(e) => {
+                      setDriverPhone(e.target.value);
+                      localStorage.setItem(`phone_driver_${report.patientName}`, e.target.value);
+                    }}
+                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={sendStakeholderSms}
+                    disabled={smsStatus.status === 'sending'}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0 flex items-center gap-1"
+                  >
+                    {smsStatus.status === 'sending' ? <Loader2 size={14} className="animate-spin" /> : (
+                      <>
+                        <MessageSquare size={12} />
+                        <span>SMS</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                {smsStatus.error && (
+                  <p className="text-[10px] text-rose-500 leading-tight mt-1">{smsStatus.error}</p>
+                )}
+              </div>
+
               {/* Medical Examiner Section */}
               <div className="space-y-1.5 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 relative overflow-hidden">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Activity size={12} className="text-emerald-500" />
+                    <Activity size={12} className="text-blue-500" />
                     DOT Medical Examiner
                   </span>
                   {emailStatuses.examiner.status === 'success' && (
@@ -813,7 +918,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                   <button
                     onClick={() => sendStakeholderEmail('examiner')}
                     disabled={emailStatuses.examiner.status === 'sending'}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs transition-colors shrink-0"
                   >
                     {emailStatuses.examiner.status === 'sending' ? <Loader2 size={14} className="animate-spin" /> : 'Send'}
                   </button>
@@ -910,7 +1015,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                   Custom Accompanying Message (Optional)
                 </label>
                 <textarea
-                  placeholder="Add a personalized greeting or specific instructions to attach in the email body..."
+                  placeholder="Add a personalized dispatch note or instructions to include in the notification..."
                   value={customMessage}
                   onChange={(e) => setCustomMessage(e.target.value)}
                   className="w-full h-20 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none placeholder:text-slate-300 text-slate-800"
@@ -922,13 +1027,14 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
                 onClick={async () => {
                   const sendOps = [];
                   if (driverEmail) sendOps.push(sendStakeholderEmail('driver'));
+                  if (driverPhone) sendOps.push(sendStakeholderSms());
                   if (examinerEmail) sendOps.push(sendStakeholderEmail('examiner'));
                   if (employerEmail) sendOps.push(sendStakeholderEmail('employer'));
                   if (customStakeholderEmail) sendOps.push(sendStakeholderEmail('custom'));
                   
                   await Promise.all(sendOps);
                 }}
-                disabled={!driverEmail && !examinerEmail && !employerEmail && !customStakeholderEmail}
+                disabled={!driverEmail && !driverPhone && !examinerEmail && !employerEmail && !customStakeholderEmail}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-2xl text-sm transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
               >
                 <Mail size={16} />
