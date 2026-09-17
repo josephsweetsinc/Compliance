@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { UserProfile } from '../types';
 import { auth } from '../lib/firebase';
 import { 
@@ -9,6 +9,7 @@ import {
   Zap, 
   ShieldCheck, 
   FileText, 
+  FileUp,
   Building2, 
   ArrowRight, 
   Loader2, 
@@ -702,6 +703,38 @@ export default function BillingPage({
           </div>
         </div>
       </header>
+
+      {/* Active Available Balance Callout */}
+      {(availableCredits > 0 || isUnlimitedPlan) && (
+        <div id="active-balance-banner" className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 border border-blue-200/80 dark:border-blue-800/60 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5 sm:mt-0">
+              <Coins size={22} />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                {isUnlimitedPlan 
+                  ? 'Unlimited Clinic Processing is Active' 
+                  : `You Have ${availableCredits} Report Credit${availableCredits === 1 ? '' : 's'} Ready to Use`}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
+                {isUnlimitedPlan
+                  ? 'You can process unlimited CPAP compliance reports anytime.'
+                  : `Your account has an active balance. You can process ${availableCredits} report${availableCredits === 1 ? '' : 's'} right now without purchasing additional credits.`}
+              </p>
+            </div>
+          </div>
+          <Link
+            id="go-to-upload-button"
+            to="/dashboard/upload"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm rounded-xl shadow-sm transition-colors shrink-0"
+          >
+            <FileUp size={16} />
+            <span>Upload & Process Report</span>
+            <ArrowRight size={15} />
+          </Link>
+        </div>
+      )}
 
       {/* Structured Stripe Error Troubleshooting Card / Toast */}
       {stripeError && (

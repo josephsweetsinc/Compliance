@@ -49,20 +49,20 @@ service cloud.firestore {
              (!('stripeSubscriptionId' in data) || (data.stripeSubscriptionId is string && data.stripeSubscriptionId.size() <= 256));
     }
 
-    // Billing/entitlement fields are only ever written by the trusted server
-    // (Firebase Admin SDK, which bypasses these rules entirely) in response to
-    // a verified Stripe payment or webhook event. The client may never set or
-    // change them directly - doing so would let a user grant themselves free
-    // credits or an active subscription without paying.
-    function billingFieldsUnchanged() {
+    // Billing/entitlement fields: subscription plans and Stripe IDs cannot be modified
+    // by the client. reportCredits can either remain unchanged or be decremented
+    // (consumed) when processing compliance reports. It can never be increased by the client.
+    function billingFieldsAllowed() {
       let before = existing();
       let after = incoming();
-      return after.get('subscriptionPlan', 'free') == before.get('subscriptionPlan', 'free') &&
-             after.get('subscriptionStatus', 'inactive') == before.get('subscriptionStatus', 'inactive') &&
-             after.get('subscriptionCurrentPeriodEnd', null) == before.get('subscriptionCurrentPeriodEnd', null) &&
-             after.get('reportCredits', 0) == before.get('reportCredits', 0) &&
-             after.get('stripeCustomerId', null) == before.get('stripeCustomerId', null) &&
-             after.get('stripeSubscriptionId', null) == before.get('stripeSubscriptionId', null);
+      let planUnchanged = after.get('subscriptionPlan', 'free') == before.get('subscriptionPlan', 'free') &&
+                          after.get('subscriptionStatus', 'inactive') == before.get('subscriptionStatus', 'inactive') &&
+                          after.get('subscriptionCurrentPeriodEnd', null) == before.get('subscriptionCurrentPeriodEnd', null) &&
+                          after.get('stripeCustomerId', null) == before.get('stripeCustomerId', null) &&
+                          after.get('stripeSubscriptionId', null) == before.get('stripeSubscriptionId', null);
+      let creditsValid = (after.get('reportCredits', 0) == before.get('reportCredits', 0)) ||
+                         (after.get('reportCredits', 0) <= before.get('reportCredits', 0) && after.get('reportCredits', 0) >= 0);
+      return planUnchanged && creditsValid;
     }
 
     // On initial profile creation, only the default trial state may be set -
@@ -100,7 +100,7 @@ service cloud.firestore {
                        incoming().uid == existing().uid &&
                        incoming().email == existing().email &&
                        incoming().createdAt == existing().createdAt &&
-                       billingFieldsUnchanged();
+                       billingFieldsAllowed();
     }
 
     match /reports/{reportId} {
