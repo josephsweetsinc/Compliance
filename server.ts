@@ -350,7 +350,7 @@ async function sendResendEmail(resend: any, params: {
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 3000;
 
   // Preserve raw body buffer for Stripe webhook signature verification
   app.use(
