@@ -36,7 +36,12 @@ export default function LoginPage() {
       // Auth state listener in App.tsx will navigate to /dashboard
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
-        setError(err.message || 'Failed to sign in with Google');
+        const rawMsg = (err.message || '').toLowerCase();
+        if (rawMsg.includes('consumer_suspended') || rawMsg.includes('has been suspended')) {
+          setError('Google Cloud project is suspended. Please check Google Cloud Console.');
+        } else {
+          setError(err.message || 'Failed to sign in with Google');
+        }
       }
       setGoogleLoading(false);
     }
@@ -67,7 +72,10 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       let msg = err.message || 'Authentication failed.';
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+      const rawMsg = (err.message || '').toLowerCase();
+      if (rawMsg.includes('consumer_suspended') || rawMsg.includes('has been suspended')) {
+        msg = 'Google Cloud project is suspended. Please check Google Cloud Console.';
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         msg = 'Invalid email or password. Please verify your credentials or create an account.';
       } else if (err.code === 'auth/email-already-in-use') {
         msg = 'An account with this email already exists. Please switch to Sign In or reset your password.';

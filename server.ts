@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { initializeApp as initAdminApp, cert, applicationDefault, getApps, type App as AdminApp } from 'firebase-admin/app';
 import { getFirestore as getAdminFirestore, FieldValue, type Firestore as AdminFirestore } from 'firebase-admin/firestore';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
+import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
 
@@ -23,6 +24,28 @@ let resendClient: Resend | null = null;
 let twilioClient: any = null;
 let stripeClient: Stripe | null = null;
 let adminApp: AdminApp | null = null;
+let aiClient: GoogleGenAI | null = null;
+
+function getAI(): GoogleGenAI {
+  if (!aiClient) {
+    let apiKey = process.env.GEMINI_API_KEY?.trim() || '';
+    if ((apiKey.startsWith('"') && apiKey.endsWith('"')) || (apiKey.startsWith("'") && apiKey.endsWith("'"))) {
+      apiKey = apiKey.slice(1, -1).trim();
+    }
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is not configured on the server.");
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
+  }
+  return aiClient;
+}
 
 function getStripe(): Stripe | null {
   let key = process.env.STRIPE_SECRET_KEY?.trim() || '';
@@ -439,6 +462,127 @@ async function startServer() {
   // Health check endpoint for dev server, container ingress, and health monitors
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Secure server-side Gemini endpoint for CPAP compliance extraction
+  app.post("/api/extract-metrics", async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: "Missing or invalid document text for extraction." });
+      }
+
+      if (text.length > 500000) {
+        return res.status(413).json({ error: "Document text exceeds maximum size (500KB)." });
+      }
+
+      const ai = getAI();
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: `You are a medical data extraction engine.
+
+Extract CPAP compliance metrics from the document.
+
+Rules:
+
+* Return ONLY valid JSON
+* Do NOT explain anything
+* Do NOT guess values
+* If a value is missing, return null
+* Numbers must be numeric (no % signs)
+
+Extract:
+
+patient_name
+device_type
+report_start_date
+report_end_date
+total_days
+days_used_4_plus_hours
+usage_days_percent
+average_usage_hours
+ahi
+
+Important:
+
+* usage_days_percent = % of days with ≥4 hours usage
+* average_usage_hours = average nightly usage
+* ahi = apnea-hypopnea index
+
+Return format:
+
+{
+"patient_name": "",
+"device_type": "",
+"report_start_date": "",
+"report_end_date": "",
+"total_days": 0,
+"days_used_4_plus_hours": 0,
+"usage_days_percent": 0,
+"average_usage_hours": 0,
+"ahi": 0
+}
+
+Document Text:
+${text}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              patient_name: { type: Type.STRING },
+              device_type: { type: Type.STRING },
+              report_start_date: { type: Type.STRING },
+              report_end_date: { type: Type.STRING },
+              total_days: { type: Type.INTEGER },
+              days_used_4_plus_hours: { type: Type.INTEGER },
+              usage_days_percent: { type: Type.NUMBER },
+              average_usage_hours: { type: Type.NUMBER },
+              ahi: { type: Type.NUMBER },
+            },
+            required: [
+              "patient_name",
+              "device_type",
+              "report_start_date",
+              "report_end_date",
+              "total_days",
+              "days_used_4_plus_hours",
+              "usage_days_percent",
+              "average_usage_hours",
+              "ahi",
+            ],
+          },
+        },
+      });
+
+      const jsonStr = response.text?.trim();
+      if (!jsonStr) {
+        return res.status(502).json({ error: "The AI service returned an empty response. Please try uploading the report again." });
+      }
+
+      let metrics: any;
+      try {
+        metrics = JSON.parse(jsonStr);
+      } catch (e) {
+        return res.status(502).json({ error: "Failed to parse the CPAP data. The document format might be unsupported." });
+      }
+
+      res.json({ metrics });
+    } catch (err: any) {
+      console.error("[Gemini Extraction Error]", err);
+      const errMsg = (err.message || '').toLowerCase();
+      if (errMsg.includes("suspended") || errMsg.includes("permission_denied") || errMsg.includes("api_key_invalid") || errMsg.includes("api key")) {
+        return res.status(403).json({
+          error: "The Gemini API service reported an authorization or project suspension error. Please verify your API key in project settings."
+        });
+      }
+      if (errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("rate limit")) {
+        return res.status(429).json({
+          error: "The analysis service is currently busy. Please wait a moment and try again."
+        });
+      }
+      res.status(500).json({ error: `Failed to analyze the CPAP report: ${err.message || "Unknown error"}` });
+    }
   });
 
   // API routes
