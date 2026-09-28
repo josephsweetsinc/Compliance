@@ -15,6 +15,7 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [bulkSuccessNotice, setBulkSuccessNotice] = useState<string | null>(null);
   const [showExpiredAlert, setShowExpiredAlert] = useState<{ patientName: string } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -134,17 +135,18 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
     let successCount = 0;
 
     try {
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       for (const report of selectedReports) {
         // We use the profile email since we don't have individual patient emails saved in the schema
         // This simulates bulk sending reports to the clinic or a designated recipient
         const response = await fetch('/api/send-notification', {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
+          headers,
           body: JSON.stringify({
             email: profile.email,
             patientName: report.patientName,
@@ -158,11 +160,12 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
         if (response.ok) {
           successCount++;
         } else {
-          throw new Error(data.details || data.error || 'Failed to send email');
+          throw new Error(data.error || data.message || data.details || 'Failed to send email');
         }
       }
       
-      alert(`Successfully sent ${successCount} report notifications to ${profile.email}`);
+      setBulkSuccessNotice(`Successfully sent ${successCount} report notifications to ${profile.email}`);
+      setTimeout(() => setBulkSuccessNotice(null), 5000);
       setSelectedIds(new Set());
     } catch (err: any) {
       setActionError(`Email error: ${err.message || 'Failed to send some emails. Please try again.'}`);
@@ -204,6 +207,13 @@ export default function HistoryPage({ profile }: { profile: UserProfile }) {
           <button onClick={() => setShowExpiredAlert(null)} className="text-amber-400 hover:text-amber-600">
             <X size={18} />
           </button>
+        </div>
+      )}
+
+      {bulkSuccessNotice && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl animate-in fade-in duration-300">
+          <CheckCircle size={20} className="text-emerald-600 shrink-0" />
+          <p className="text-sm font-medium">{bulkSuccessNotice}</p>
         </div>
       )}
 

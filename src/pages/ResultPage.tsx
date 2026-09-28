@@ -6,7 +6,86 @@ import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
 import { LegalDisclaimer } from '../components/LegalDisclaimer';
-import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle, Smartphone, MessageSquare } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle, Smartphone, MessageSquare, CheckCircle2 } from 'lucide-react';
+
+function NotificationErrorBanner({
+  errorDetails,
+  recipientEmail,
+  onTestEmailClick,
+}: {
+  errorDetails: string;
+  recipientEmail?: string;
+  onTestEmailClick?: (email: string) => void;
+}) {
+  const err = errorDetails.toLowerCase();
+  const isInvalidRecipient =
+    err.includes('invalid `to`') ||
+    err.includes('example.com') ||
+    err.includes('invalid email address') ||
+    err.includes('deliverable recipient');
+
+  const isAuthError =
+    (err.includes('unauthorized') && !err.includes('resend')) ||
+    err.includes('bearer token') ||
+    err.includes('authentication token') ||
+    err.includes('session');
+
+  const isResendKeyMissing =
+    err.includes('resend_api_key') ||
+    err.includes('invalid_api_key') ||
+    err.includes('unauthorized resend');
+
+  return (
+    <div className="max-w-4xl mx-auto bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800 animate-in fade-in duration-300 shadow-sm font-sans mb-6">
+      <div className="flex gap-3">
+        <AlertCircle className="text-rose-600 shrink-0 w-5 h-5 mt-0.5" />
+        <div className="space-y-2 flex-1">
+          <p className="font-bold text-rose-900">Email Dispatch Notice</p>
+          <p className="opacity-95 text-rose-800 font-medium">{errorDetails}</p>
+
+          {isInvalidRecipient && (
+            <div className="mt-3 p-4 rounded-xl bg-white/95 border border-amber-200 text-xs text-amber-900 leading-relaxed font-sans shadow-sm">
+              <span className="font-bold block text-sm mb-1 text-amber-950">📧 Recipient Address Check:</span>
+              <p className="mb-2 text-slate-600">
+                Please enter a real, deliverable recipient email address (such as a personal Gmail, Yahoo, Outlook, or medical clinic address). Generic example domains (like <code>example.com</code> or <code>test.com</code>) are rejected by email delivery filters.
+              </p>
+              {onTestEmailClick && (
+                <button
+                  type="button"
+                  onClick={() => onTestEmailClick('josephsweetsinc@gmail.com')}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors shrink-0 shadow-sm"
+                >
+                  Test with My Email (josephsweetsinc@gmail.com)
+                </button>
+              )}
+            </div>
+          )}
+
+          {isAuthError && (
+            <div className="mt-3 p-4 rounded-xl bg-white/95 border border-amber-200 text-xs text-amber-900 leading-relaxed font-sans shadow-sm">
+              <span className="font-bold block text-sm mb-1 text-amber-950">🔐 Session Refresh Needed:</span>
+              <p>Your portal login session could not be verified by the notification service. Please refresh your browser or log out and log back in to renew your secure session.</p>
+            </div>
+          )}
+
+          {isResendKeyMissing && (
+            <div className="mt-3 p-4 rounded-xl bg-white/95 border border-rose-200 text-xs text-rose-800 leading-relaxed font-sans shadow-sm">
+              <span className="font-bold block text-sm mb-1 text-rose-900">🔑 Resend API Key Configuration:</span>
+              <p className="mt-1">
+                The application server requires a valid Resend API key to transmit external emails:
+              </p>
+              <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-900">
+                <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com/api-keys</a>) and copy your API Key (starts with <code className="bg-rose-100 px-1 rounded font-mono">re_</code>).</li>
+                <li>Ensure the key has 'Full Access' or 'Sending Access'.</li>
+                <li>In Google AI Studio, ensure <strong className="font-mono">RESEND_API_KEY</strong> is set in your environment variables.</li>
+              </ol>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ResultPage({ profile }: { profile: UserProfile }) {
   const { id } = useParams<{ id: string }>();
@@ -102,14 +181,15 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
     setSmsStatus({ status: 'sending' });
 
     try {
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       const response = await fetch('/api/send-sms', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers,
         body: JSON.stringify({
           phone: driverPhone.trim(),
           reportId: report.id,
@@ -119,7 +199,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to dispatch SMS notification.');
+        throw new Error(data.error || data.message || data.details || 'Failed to dispatch SMS notification.');
       }
 
       setSmsStatus({ status: 'success' });
@@ -175,14 +255,15 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const pdfDoc = generateCompliancePdf(report, profile.clinicName, false);
       const pdfBase64 = pdfDoc.output('datauristring');
 
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => 'user-session-token') : 'user-session-token';
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       const response = await fetch('/api/send-notification', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers,
         body: JSON.stringify({
           email: targetEmail.trim(),
           patientName: report.patientName,
@@ -197,7 +278,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.details || data.error || data.message || `Server responded with status code ${response.status}`);
+        throw new Error(data.error || data.message || data.details || `Server responded with status code ${response.status}`);
       }
 
       setEmailStatuses(prev => ({
@@ -258,11 +339,17 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const pdfDoc = generateCompliancePdf(report, profile.clinicName, false);
       const pdfBase64 = pdfDoc.output('datauristring');
 
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('/api/send-notification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          email: recipientEmail,
+          email: recipientEmail.trim(),
           patientName: report.patientName,
           status: report.status,
           reportId: report.id,
@@ -273,7 +360,7 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.details || data.error || data.message || `Server responded with status code ${response.status}`);
+        throw new Error(data.error || data.message || data.details || `Server responded with status code ${response.status}`);
       }
 
       setEmailStatus('success');
@@ -410,52 +497,11 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
         </header>
 
         {emailStatus === 'error' && emailErrorDetails && (
-          <div className="max-w-4xl mx-auto bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800 animate-in fade-in duration-300 shadow-sm font-sans">
-            <div className="flex gap-3">
-              <AlertCircle className="text-rose-600 shrink-0 w-5 h-5 mt-0.5" />
-              <div className="space-y-2">
-                <p className="font-bold text-rose-900">Email Dispatch Exception</p>
-                <p className="opacity-95 text-rose-800 font-medium">{emailErrorDetails}</p>
-                {emailErrorDetails.toLowerCase().includes('sandbox') ||
-                 emailErrorDetails.toLowerCase().includes('onboarding') ||
-                 emailErrorDetails.toLowerCase().includes('restrict') ||
-                 emailErrorDetails.toLowerCase().includes('validation') ||
-                 (recipientEmail.toLowerCase() !== 'josephsweetsinc@gmail.com' && !emailErrorDetails.toLowerCase().includes('api key') && !emailErrorDetails.toLowerCase().includes('invalid')) ? (
-                  <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
-                    <span className="font-bold block text-sm mb-1 text-rose-800">Developer Note (Resend Sandbox Restriction):</span>
-                    <p className="mt-1">
-                      Your backend is integrated with a free development/sandbox tier of <strong>Resend</strong>. In sandbox mode, Resend prevents sending emails to external check-in domains (like Yahoo or Outlook) until you register a custom verified domain inside your Resend account.
-                    </p>
-                    <p className="mt-2 font-bold text-rose-800">
-                      How to test successfully:
-                    </p>
-                    <ul className="list-disc list-inside mt-1 pl-1 space-y-1">
-                      <li>Change the recipient email to your registered developer email address: <strong className="font-bold underline">josephsweetsinc@gmail.com</strong></li>
-                      <li>Or log in to your Resend dashboard, add <strong className="font-semibold">{recipientEmail}</strong> as an authorized Single Recipient, or verify your custom domain.</li>
-                    </ul>
-                  </div>
-                ) : null}
-
-                {emailErrorDetails.toLowerCase().includes('api key') || 
-                 emailErrorDetails.toLowerCase().includes('invalid') ||
-                 emailErrorDetails.toLowerCase().includes('unauthorized') ||
-                 emailErrorDetails.toLowerCase().includes('missing') ? (
-                  <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
-                    <span className="font-bold block text-sm mb-1 text-rose-800">🔑 Resend API Key Configuration Guide:</span>
-                    <p className="mt-1">
-                      The application server is receiving an invalid, missing, or unauthorized Resend API key. To configure your keys and send emails successfully:
-                    </p>
-                    <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-800">
-                      <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com</a>) and copy your API Key (starts with <code className="bg-rose-100 px-1 rounded font-mono">re_</code>).</li>
-                      <li>In Google AI Studio, open the <strong>Settings / Environment Variables</strong> panel.</li>
-                      <li>Add or update the secret variable with the Name <strong className="font-mono">RESEND_API_KEY</strong> and paste your key as the Value.</li>
-                      <li>Save, wait a few seconds, and click "Email Report" to try again!</li>
-                    </ol>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          <NotificationErrorBanner 
+            errorDetails={emailErrorDetails} 
+            recipientEmail={recipientEmail} 
+            onTestEmailClick={(email) => setRecipientEmail(email)} 
+          />
         )}
 
         <div className="max-w-4xl mx-auto bg-white shadow-2xl rounded-sm border border-slate-200 p-12 md:p-16 font-serif text-slate-800 min-h-[800px]">
@@ -659,52 +705,11 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
       </header>
 
       {emailStatus === 'error' && emailErrorDetails && (
-        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800 animate-in fade-in duration-300 shadow-sm font-sans">
-          <div className="flex gap-3">
-            <AlertCircle className="text-rose-600 shrink-0 w-5 h-5 mt-0.5" />
-            <div className="space-y-2">
-              <p className="font-bold text-rose-900">Email Dispatch Exception</p>
-              <p className="opacity-95 text-rose-800 font-medium">{emailErrorDetails}</p>
-               {emailErrorDetails.toLowerCase().includes('sandbox') ||
-                emailErrorDetails.toLowerCase().includes('onboarding') ||
-                emailErrorDetails.toLowerCase().includes('restrict') ||
-                emailErrorDetails.toLowerCase().includes('validation') ||
-                (recipientEmail.toLowerCase() !== 'josephsweetsinc@gmail.com' && !emailErrorDetails.toLowerCase().includes('api key') && !emailErrorDetails.toLowerCase().includes('invalid')) ? (
-                 <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
-                   <span className="font-bold block text-sm mb-1 text-rose-800">Developer Note (Resend Sandbox Restriction):</span>
-                   <p className="mt-1">
-                     Your backend is integrated with a free development/sandbox tier of <strong>Resend</strong>. In sandbox mode, Resend prevents sending emails to external check-in domains (like Yahoo or Outlook) until you register a custom verified domain inside your Resend account.
-                   </p>
-                   <p className="mt-2 font-bold text-rose-800">
-                     How to test successfully:
-                   </p>
-                   <ul className="list-disc list-inside mt-1 pl-1 space-y-1">
-                     <li>Change the recipient email to your registered developer email address: <strong className="font-bold underline">josephsweetsinc@gmail.com</strong></li>
-                     <li>Or log in to your Resend dashboard, add <strong className="font-semibold">{recipientEmail}</strong> as an authorized Single Recipient, or verify your custom domain.</li>
-                   </ul>
-                 </div>
-               ) : null}
-
-               {emailErrorDetails.toLowerCase().includes('api key') || 
-                emailErrorDetails.toLowerCase().includes('invalid') ||
-                emailErrorDetails.toLowerCase().includes('unauthorized') ||
-                emailErrorDetails.toLowerCase().includes('missing') ? (
-                 <div className="mt-3 p-4 rounded-xl bg-white/80 border border-rose-100 text-xs text-rose-700 leading-relaxed font-sans shadow-sm">
-                   <span className="font-bold block text-sm mb-1 text-rose-800">🔑 Resend API Key Configuration Guide:</span>
-                   <p className="mt-1">
-                     The application server is receiving an invalid, missing, or unauthorized Resend API key. To configure your keys and send emails successfully:
-                   </p>
-                   <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-800">
-                     <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com</a>) and copy your API Key (starts with <code className="bg-rose-100 px-1 rounded font-mono">re_</code>).</li>
-                     <li>In Google AI Studio, open the <strong>Settings / Environment Variables</strong> panel.</li>
-                     <li>Add or update the secret variable with the Name <strong className="font-mono">RESEND_API_KEY</strong> and paste your key as the Value.</li>
-                     <li>Save, wait a few seconds, and click "Email Report" to try again!</li>
-                   </ol>
-                 </div>
-               ) : null}
-            </div>
-          </div>
-        </div>
+        <NotificationErrorBanner 
+          errorDetails={emailErrorDetails} 
+          recipientEmail={recipientEmail} 
+          onTestEmailClick={(email) => setRecipientEmail(email)} 
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

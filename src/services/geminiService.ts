@@ -9,8 +9,10 @@ export async function extractComplianceMetrics(text: string): Promise<Compliance
     };
 
     if (auth.currentUser) {
-      const token = await auth.currentUser.getIdToken();
-      headers['Authorization'] = `Bearer ${token}`;
+      const token = await auth.currentUser.getIdToken().catch(() => null);
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
     }
 
     const response = await fetch('/api/extract-metrics', {
