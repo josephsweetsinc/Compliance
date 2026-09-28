@@ -6,6 +6,7 @@ import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { UserProfile, ComplianceMetrics, ComplianceReport } from '../types';
 import { extractTextFromPdf } from '../services/pdfService';
 import { extractComplianceMetrics } from '../services/geminiService';
+import { parseCpapMetrics } from '../services/cpapParser';
 import { sendSummaryNotificationToUser } from '../services/emailService';
 import { 
   FileUp, 
@@ -61,8 +62,43 @@ export default function UploadPage({
   });
   const navigate = useNavigate();
 
+  const [restoringTrial, setRestoringTrial] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+
   const isUnlimited = profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active';
   const availableCredits = profile.reportCredits ?? 0;
+
+  const handleRestoreTrial = async () => {
+    try {
+      setRestoringTrial(true);
+      setRestoreNotice(null);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (idToken) {
+        const res = await fetch('/api/reports/restore-trial', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          if (setProfile) {
+            setProfile({ ...profile, reportCredits: 1 });
+          }
+          setRestoreNotice("Complimentary trial credit restored! You can now test your CPAP compliance report.");
+          setShowCreditModal(false);
+          return;
+        } else if (data?.error) {
+          setRestoreNotice(data.error);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Could not restore trial:', err);
+    } finally {
+      setRestoringTrial(false);
+    }
+  };
 
   const handleDetailChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -165,60 +201,12 @@ export default function UploadPage({
 
     if (indicesToProcess.length === 0) return;
 
-    // Reserve credits for this batch if not on an unlimited clinic plan
+    // Verify credits are available before starting, but DO NOT deduct yet.
+    // Credits will ONLY be deducted for files that successfully process and save.
     if (!isUnlimited) {
-      // 1. Guard check: only show credit modal if user truly has fewer credits than queued files
       if (availableCredits < indicesToProcess.length) {
         setShowCreditModal(true);
         return;
-      }
-
-      // 2. Consume credits: attempt server endpoint first, falling back gracefully to authenticated client Firestore
-      let newCreditBalance = Math.max(0, availableCredits - indicesToProcess.length);
-      let consumedOnServer = false;
-
-      try {
-        const idToken = await auth.currentUser?.getIdToken();
-        if (idToken) {
-          const res = await fetch('/api/reports/consume-credits', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`,
-            },
-            body: JSON.stringify({ count: indicesToProcess.length }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok && data.success) {
-            if (typeof data.reportCredits === 'number') {
-              newCreditBalance = data.reportCredits;
-              consumedOnServer = true;
-            } else if (data.clientFallback) {
-              consumedOnServer = false;
-            }
-          } else if (res.status === 402) {
-            // Genuinely insufficient credits confirmed by server
-            setShowCreditModal(true);
-            return;
-          }
-        }
-      } catch (creditErr) {
-        console.warn('Server credit consumption endpoint unavailable, using client Firestore decrement:', creditErr);
-      }
-
-      // If server did not persist the deduction (e.g. cloud container lacks Firebase Admin SDK service account),
-      // persist the decrement directly in Firestore via the user's authenticated session
-      if (!consumedOnServer && profile.uid) {
-        try {
-          const userDocRef = doc(db, 'users', profile.uid);
-          await updateDoc(userDocRef, { reportCredits: newCreditBalance });
-        } catch (clientErr: any) {
-          console.warn('Could not update reportCredits directly in Firestore:', clientErr);
-        }
-      }
-
-      if (setProfile) {
-        setProfile({ ...profile, reportCredits: newCreditBalance });
       }
     }
 
@@ -247,7 +235,7 @@ export default function UploadPage({
         const extraction = await extractTextFromPdf(file);
         
         if (!extraction.text) {
-          throw new Error('Extraction failed: No text content found in PDF. The document might be a scanned image or protected.');
+          throw new Error('Extraction failed: No text content found in PDF. The document might be an unreadable image or protected.');
         }
 
         if (extraction.isLowQuality) {
@@ -270,7 +258,16 @@ export default function UploadPage({
         });
 
         setStep('analyzing');
-        const metrics = await extractComplianceMetrics(extraction.text);
+        let metrics: ComplianceMetrics | null = null;
+        try {
+          metrics = await extractComplianceMetrics(extraction.text);
+        } catch (extractErr: any) {
+          console.warn(`Primary AI extraction notice for ${file.name}, using deterministic engine:`, extractErr.message);
+          metrics = parseCpapMetrics(extraction.text);
+          if (!metrics) {
+            throw extractErr;
+          }
+        }
 
         const status = calculateCompliance(metrics);
 
@@ -297,7 +294,7 @@ export default function UploadPage({
         
         if (profile.email && profile.autoEmailEnabled !== false) {
           sendSummaryNotificationToUser(reportData, profile.email)
-            .catch(err => console.error('Automated operator email summary error:', err));
+            .catch(err => console.warn('Automated operator email summary warning:', err?.message || err));
         }
 
         if (notificationSettings.enabled && notificationSettings.email && auth.currentUser) {
@@ -317,7 +314,7 @@ export default function UploadPage({
               reportId: newDocRef.id,
               metrics: metrics
             }),
-          }).catch(err => console.error('Email error:', err));
+          }).catch(err => console.warn('Email notification warning:', err?.message || err));
         }
 
         setFileResults(prev => {
@@ -330,13 +327,18 @@ export default function UploadPage({
         });
 
       } catch (err: any) {
-        console.error(`Error processing file ${file.name}:`, err);
+        console.warn(`Notice while processing file ${file.name}:`, err.message || err);
+        const rawErrMsg = err.message || 'Unable to parse CPAP compliance document';
+        const cleanMsg = (rawErrMsg.toLowerCase().includes('gemini') || rawErrMsg.toLowerCase().includes('api key') || rawErrMsg.toLowerCase().includes('prepayment') || rawErrMsg.toLowerCase().includes('billing') || rawErrMsg.toLowerCase().includes('402'))
+          ? 'Unable to extract compliance metrics from this document. Please ensure the CPAP report contains clear text data.'
+          : rawErrMsg;
+
         setFileResults(prev => {
           const updated = [...prev];
           updated[i] = { 
             ...updated[i], 
             status: 'error', 
-            error: err.message || 'Failed to process document' 
+            error: cleanMsg
           };
           return updated;
         });
@@ -345,8 +347,49 @@ export default function UploadPage({
       }
     }
 
-    // Credits for this batch were already reserved server-side above, before
-    // processing began - nothing left to deduct here.
+    // FAIR BILLING: Deduct report credits ONLY for documents that were successfully
+    // generated and saved. If any document failed, the customer is NEVER charged!
+    const successfulReportsThisBatch = reportIds.length;
+    if (!isUnlimited && successfulReportsThisBatch > 0) {
+      let newCreditBalance = Math.max(0, availableCredits - successfulReportsThisBatch);
+      let consumedOnServer = false;
+
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (idToken) {
+          const res = await fetch('/api/reports/consume-credits', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ count: successfulReportsThisBatch }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.success) {
+            if (typeof data.reportCredits === 'number') {
+              newCreditBalance = data.reportCredits;
+              consumedOnServer = true;
+            }
+          }
+        }
+      } catch (creditErr) {
+        console.warn('Server credit consumption endpoint unavailable, using client Firestore decrement:', creditErr);
+      }
+
+      if (!consumedOnServer && profile.uid) {
+        try {
+          const userDocRef = doc(db, 'users', profile.uid);
+          await updateDoc(userDocRef, { reportCredits: newCreditBalance });
+        } catch (clientErr: any) {
+          console.warn('Could not update reportCredits directly in Firestore:', clientErr);
+        }
+      }
+
+      if (setProfile) {
+        setProfile({ ...profile, reportCredits: newCreditBalance });
+      }
+    }
 
     setLoading(false);
     setCurrentFileIndex(null);
@@ -384,9 +427,21 @@ export default function UploadPage({
                 <Coins size={16} className="text-blue-600 dark:text-blue-400" />
                 <span>{availableCredits} {availableCredits === 1 ? 'Credit' : 'Credits'}</span>
               </div>
+              {availableCredits === 0 && (
+                <button
+                  type="button"
+                  onClick={handleRestoreTrial}
+                  disabled={restoringTrial}
+                  className="ml-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  title="Restore complimentary trial credit if it was used during a failed test run"
+                >
+                  <RefreshCw size={12} className={restoringTrial ? "animate-spin" : ""} />
+                  <span>Restore Trial</span>
+                </button>
+              )}
               <Link
                 to="/dashboard/billing"
-                className="ml-2 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
+                className="ml-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
               >
                 + Add Credits ($9/ea)
               </Link>
@@ -394,6 +449,19 @@ export default function UploadPage({
           )}
         </div>
       </div>
+
+      {/* Restore Notice Banner */}
+      {restoreNotice && (
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-xs font-semibold animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{restoreNotice}</span>
+          </div>
+          <button onClick={() => setRestoreNotice(null)} className="text-emerald-600 hover:text-emerald-800 dark:hover:text-emerald-200 cursor-pointer p-1">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Credit Required Modal */}
       {showCreditModal && (
@@ -451,6 +519,24 @@ export default function UploadPage({
                 </Link>
               </div>
             </div>
+
+            {/* Trial recovery option */}
+            {availableCredits === 0 && (
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                  Testing the application or experienced an unexpected extraction failure?
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRestoreTrial}
+                  disabled={restoringTrial}
+                  className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 px-3.5 py-2 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={restoringTrial ? "animate-spin" : ""} />
+                  <span>{restoringTrial ? "Restoring..." : "Restore 1 Trial Report Credit (Free)"}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

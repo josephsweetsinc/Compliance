@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isExistingEmail, setIsExistingEmail] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,13 +76,14 @@ export default function LoginPage() {
       const rawMsg = (err.message || '').toLowerCase();
       if (rawMsg.includes('consumer_suspended') || rawMsg.includes('has been suspended')) {
         msg = 'Google Cloud project is suspended. Please check Google Cloud Console.';
-      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential' || rawMsg.includes('invalid-credential') || rawMsg.includes('user-not-found') || rawMsg.includes('wrong-password')) {
         msg = 'Invalid email or password. Please verify your credentials or create an account.';
-      } else if (err.code === 'auth/email-already-in-use') {
-        msg = 'An account with this email already exists. Please switch to Sign In or reset your password.';
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (err.code === 'auth/email-already-in-use' || rawMsg.includes('email-already-in-use') || rawMsg.includes('email already in use')) {
+        msg = 'An account with this email already exists. You can sign in directly or reset your password.';
+        setIsExistingEmail(true);
+      } else if (err.code === 'auth/invalid-email' || rawMsg.includes('invalid-email')) {
         msg = 'Please enter a valid email address.';
-      } else if (err.code === 'auth/weak-password') {
+      } else if (err.code === 'auth/weak-password' || rawMsg.includes('weak-password')) {
         msg = 'Password is too weak. Please use at least 6 characters with letters and numbers.';
       }
       setError(msg);
@@ -127,7 +129,7 @@ export default function LoginPage() {
           <div className="flex p-1 bg-slate-100 dark:bg-slate-800/70 rounded-xl mb-6 border border-slate-200/60 dark:border-slate-700/60">
             <button
               type="button"
-              onClick={() => { setMode('signin'); setError(null); setSuccessMessage(null); }}
+              onClick={() => { setMode('signin'); setError(null); setIsExistingEmail(false); setSuccessMessage(null); }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                 mode === 'signin'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
@@ -138,7 +140,7 @@ export default function LoginPage() {
             </button>
             <button
               type="button"
-              onClick={() => { setMode('signup'); setError(null); setSuccessMessage(null); }}
+              onClick={() => { setMode('signup'); setError(null); setIsExistingEmail(false); setSuccessMessage(null); }}
               className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                 mode === 'signup'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
@@ -152,9 +154,24 @@ export default function LoginPage() {
 
         {/* Alert Notifications */}
         {error && (
-          <div className="mb-5 p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs rounded-xl flex items-start gap-2.5">
-            <AlertCircle size={16} className="text-rose-500 flex-shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="mb-5 p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs rounded-xl flex flex-col gap-2.5">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle size={16} className="text-rose-500 flex-shrink-0 mt-0.5" />
+              <span className="flex-1">{error}</span>
+            </div>
+            {(isExistingEmail || error.includes('already exists')) && mode === 'signup' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('signin');
+                  setError(null);
+                  setIsExistingEmail(false);
+                }}
+                className="self-start mt-0.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <span>Switch to Sign In &rarr;</span>
+              </button>
+            )}
           </div>
         )}
 

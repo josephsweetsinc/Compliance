@@ -86,8 +86,12 @@ export const loginWithEmail = async (email: string, password: string) => {
   try {
     const result = await signInWithEmailAndPassword(auth, email.trim(), password);
     return result.user;
-  } catch (error) {
-    console.error('Email login error:', error);
+  } catch (error: any) {
+    if (error?.code === 'auth/user-not-found' || error?.code === 'auth/wrong-password' || error?.code === 'auth/invalid-credential') {
+      console.warn('Login attempt failed: invalid credentials for', email.trim());
+    } else {
+      console.error('Email login error:', error);
+    }
     throw error;
   }
 };
@@ -106,8 +110,12 @@ export const registerWithEmail = async (
     }
 
     return user;
-  } catch (error) {
-    console.error('Email registration error:', error);
+  } catch (error: any) {
+    if (error?.code === 'auth/email-already-in-use' || error?.message?.includes('auth/email-already-in-use')) {
+      console.warn('Registration attempt with existing email:', email.trim());
+    } else {
+      console.error('Email registration error:', error);
+    }
     throw error;
   }
 };

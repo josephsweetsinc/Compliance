@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, logout } from './lib/firebase';
 import { UserProfile } from './types';
@@ -20,6 +20,27 @@ import BillingPage from './pages/BillingPage';
 import Analytics from './components/Analytics';
 import { BrandLogo } from './components/BrandLogo';
 import { ErrorBoundary } from './components/ErrorBoundary';
+
+function LoginRedirect({ user }: { user: User | null }) {
+  const [searchParams] = useSearchParams();
+  const redirectTarget = searchParams.get('redirect');
+  if (user) {
+    // Open-redirect defense: only allow relative application paths
+    const safePath = (redirectTarget && redirectTarget.startsWith('/') && !redirectTarget.startsWith('//'))
+      ? redirectTarget
+      : '/dashboard';
+    return <Navigate to={safePath} replace />;
+  }
+  return <LoginPage />;
+}
+
+function ReportRouteRedirect({ user }: { user: User | null }) {
+  const { id } = useParams<{ id: string }>();
+  if (!user) {
+    return <Navigate to={`/login?redirect=${encodeURIComponent(`/dashboard/report/${id}`)}`} replace />;
+  }
+  return <Navigate to={`/dashboard/report/${id}`} replace />;
+}
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -74,7 +95,8 @@ function App() {
       <ErrorBoundary id="root-app-error-boundary">
         <Routes>
           <Route path="/" element={user ? <Navigate to="/dashboard" /> : <LandingPage />} />
-          <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/dashboard" />} />
+          <Route path="/login" element={<LoginRedirect user={user} />} />
+          <Route path="/report/:id" element={<ReportRouteRedirect user={user} />} />
           <Route
             path="/dashboard/*"
             element={
