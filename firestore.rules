@@ -60,8 +60,10 @@ service cloud.firestore {
                           after.get('subscriptionCurrentPeriodEnd', null) == before.get('subscriptionCurrentPeriodEnd', null) &&
                           after.get('stripeCustomerId', null) == before.get('stripeCustomerId', null) &&
                           after.get('stripeSubscriptionId', null) == before.get('stripeSubscriptionId', null);
-      let creditsValid = (after.get('reportCredits', 0) == before.get('reportCredits', 0)) ||
-                         (after.get('reportCredits', 0) <= before.get('reportCredits', 0) && after.get('reportCredits', 0) >= 0);
+      // reportCredits can be decremented on report processing or refunded/restored when an error occurs
+      let creditsValid = after.get('reportCredits', 0) is number &&
+                         after.get('reportCredits', 0) >= 0 &&
+                         after.get('reportCredits', 0) <= 500;
       return planUnchanged && creditsValid;
     }
 

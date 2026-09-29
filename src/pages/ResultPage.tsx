@@ -1,21 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
 import { formatDate } from '../lib/utils';
 import { LegalDisclaimer } from '../components/LegalDisclaimer';
-import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle, Smartphone, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, Download, Trash2, ChevronLeft, Calendar, User, Clock, Activity, FileText, Mail, Loader2, Check, Users, Shield, ShieldAlert, FileX, History, FileUp, HelpCircle, Smartphone, MessageSquare, CheckCircle2, Coins, ShieldCheck, RefreshCw } from 'lucide-react';
 
 function NotificationErrorBanner({
   errorDetails,
   recipientEmail,
   onTestEmailClick,
+  onDismiss,
+  onRefundCredit,
+  refundingCredit = false,
 }: {
   errorDetails: string;
   recipientEmail?: string;
   onTestEmailClick?: (email: string) => void;
+  onDismiss?: () => void;
+  onRefundCredit?: () => void;
+  refundingCredit?: boolean;
 }) {
   const err = errorDetails.toLowerCase();
   const isInvalidRecipient =
@@ -35,25 +41,60 @@ function NotificationErrorBanner({
     err.includes('invalid_api_key') ||
     err.includes('unauthorized resend');
 
-  return (
-    <div className="max-w-4xl mx-auto bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800 animate-in fade-in duration-300 shadow-sm font-sans mb-6">
-      <div className="flex gap-3">
-        <AlertCircle className="text-rose-600 shrink-0 w-5 h-5 mt-0.5" />
-        <div className="space-y-2 flex-1">
-          <p className="font-bold text-rose-900">Email Dispatch Notice</p>
-          <p className="opacity-95 text-rose-800 font-medium">{errorDetails}</p>
+  const isDomainError =
+    err.includes('not verified') ||
+    err.includes('domain') ||
+    err.includes('validation_error');
 
-          {isInvalidRecipient && (
-            <div className="mt-3 p-4 rounded-xl bg-white/95 border border-amber-200 text-xs text-amber-900 leading-relaxed font-sans shadow-sm">
-              <span className="font-bold block text-sm mb-1 text-amber-950">📧 Recipient Address Check:</span>
-              <p className="mb-2 text-slate-600">
-                Please enter a real, deliverable recipient email address (such as a personal Gmail, Yahoo, Outlook, or medical clinic address). Generic example domains (like <code>example.com</code> or <code>test.com</code>) are rejected by email delivery filters.
+  return (
+    <div className="max-w-4xl mx-auto bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-2xl p-5 text-sm text-rose-800 dark:text-rose-200 animate-in fade-in duration-300 shadow-sm font-sans mb-6">
+      <div className="flex gap-3">
+        <AlertCircle className="text-rose-600 dark:text-rose-400 shrink-0 w-5 h-5 mt-0.5" />
+        <div className="space-y-3 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-bold text-rose-900 dark:text-rose-100 text-base">Portal Notification Notice</p>
+            {onDismiss && (
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="text-xs text-rose-600 hover:text-rose-900 dark:text-rose-400 dark:hover:text-rose-100 font-bold px-2 py-1 rounded-lg hover:bg-rose-100/60 dark:hover:bg-rose-900/60 transition-colors cursor-pointer"
+              >
+                Dismiss Notice
+              </button>
+            )}
+          </div>
+          <p className="opacity-95 text-rose-800 dark:text-rose-200 font-medium">{errorDetails}</p>
+
+          {isDomainError && (
+            <div className="p-4 rounded-xl bg-white/95 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-800 text-xs text-amber-950 dark:text-amber-200 leading-relaxed shadow-xs">
+              <span className="font-bold block text-sm mb-1 text-amber-950 dark:text-amber-100">Domain Verification Details:</span>
+              <p className="text-slate-600 dark:text-slate-300 mb-2">
+                Your verified domain configured in Resend is <strong className="font-mono text-blue-600 dark:text-blue-400">reports.complyzzz.com</strong>. All outgoing notifications are now configured to dispatch through this verified address.
               </p>
               {onTestEmailClick && (
                 <button
                   type="button"
                   onClick={() => onTestEmailClick('josephsweetsinc@gmail.com')}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors shrink-0 shadow-sm"
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs transition-colors shrink-0 shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Mail size={13} />
+                  <span>Send Test Email to Account Owner (josephsweetsinc@gmail.com)</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {isInvalidRecipient && (
+            <div className="p-4 rounded-xl bg-white/95 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed shadow-xs">
+              <span className="font-bold block text-sm mb-1 text-amber-950 dark:text-amber-100">📧 Recipient Address Check:</span>
+              <p className="mb-2 text-slate-600 dark:text-slate-300">
+                Please enter a real, deliverable recipient email address (such as a personal Gmail, Yahoo, Outlook, or clinic address). Placeholder test addresses (like <code>example.com</code> or <code>test.com</code>) cannot receive mail.
+              </p>
+              {onTestEmailClick && (
+                <button
+                  type="button"
+                  onClick={() => onTestEmailClick('josephsweetsinc@gmail.com')}
+                  className="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors shrink-0 shadow-xs cursor-pointer"
                 >
                   Test with My Email (josephsweetsinc@gmail.com)
                 </button>
@@ -62,23 +103,47 @@ function NotificationErrorBanner({
           )}
 
           {isAuthError && (
-            <div className="mt-3 p-4 rounded-xl bg-white/95 border border-amber-200 text-xs text-amber-900 leading-relaxed font-sans shadow-sm">
-              <span className="font-bold block text-sm mb-1 text-amber-950">🔐 Session Refresh Needed:</span>
-              <p>Your portal login session could not be verified by the notification service. Please refresh your browser or log out and log back in to renew your secure session.</p>
+            <div className="p-4 rounded-xl bg-white/95 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed shadow-xs">
+              <span className="font-bold block text-sm mb-1 text-amber-950 dark:text-amber-100">🔐 Session Refresh Needed:</span>
+              <p className="text-slate-600 dark:text-slate-300">Your portal login session could not be verified by the notification service. Please refresh your browser or log out and log back in to renew your secure session.</p>
             </div>
           )}
 
           {isResendKeyMissing && (
-            <div className="mt-3 p-4 rounded-xl bg-white/95 border border-rose-200 text-xs text-rose-800 leading-relaxed font-sans shadow-sm">
-              <span className="font-bold block text-sm mb-1 text-rose-900">🔑 Resend API Key Configuration:</span>
-              <p className="mt-1">
+            <div className="p-4 rounded-xl bg-white/95 dark:bg-slate-900/90 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 leading-relaxed shadow-xs">
+              <span className="font-bold block text-sm mb-1 text-rose-900 dark:text-rose-100">🔑 Resend API Key Configuration:</span>
+              <p className="mt-1 text-slate-600 dark:text-slate-300">
                 The application server requires a valid Resend API key to transmit external emails:
               </p>
-              <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-900">
-                <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com/api-keys</a>) and copy your API Key (starts with <code className="bg-rose-100 px-1 rounded font-mono">re_</code>).</li>
+              <ol className="list-decimal list-inside mt-2 pl-1 space-y-1.5 font-medium text-rose-900 dark:text-rose-200">
+                <li>Log into your <strong>Resend Dashboard</strong> (at <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-950">resend.com/api-keys</a>) and copy your API Key (starts with <code className="bg-rose-100 dark:bg-rose-900/50 px-1 rounded font-mono">re_</code>).</li>
                 <li>Ensure the key has 'Full Access' or 'Sending Access'.</li>
                 <li>In Google AI Studio, ensure <strong className="font-mono">RESEND_API_KEY</strong> is set in your environment variables.</li>
               </ol>
+            </div>
+          )}
+
+          {/* Fair Billing Guarantee Credit Reimbursement Button */}
+          {onRefundCredit && (
+            <div className="mt-2 pt-3 border-t border-rose-200/80 dark:border-rose-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/60 dark:bg-slate-900/40 p-3 rounded-xl">
+              <div>
+                <p className="font-bold text-xs text-rose-950 dark:text-rose-100 flex items-center gap-1.5">
+                  <ShieldCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
+                  <span>Fair Billing Guarantee</span>
+                </p>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                  Internal error on this report? Click below to instantly refund 1 credit back to your account.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onRefundCredit}
+                disabled={refundingCredit}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-lg font-bold text-xs transition-colors shrink-0 shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                {refundingCredit ? <Loader2 size={13} className="animate-spin" /> : <Coins size={13} />}
+                <span>{refundingCredit ? 'Refunding...' : 'Refund 1 Credit Now'}</span>
+              </button>
             </div>
           )}
         </div>
@@ -87,7 +152,7 @@ function NotificationErrorBanner({
   );
 }
 
-export default function ResultPage({ profile }: { profile: UserProfile }) {
+export default function ResultPage({ profile, setProfile }: { profile: UserProfile; setProfile?: (p: UserProfile) => void }) {
   const { id } = useParams<{ id: string }>();
   const [report, setReport] = useState<ComplianceReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -124,6 +189,34 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   const [smsStatus, setSmsStatus] = useState<{ status: 'idle' | 'sending' | 'success' | 'error'; error?: string }>({
     status: 'idle',
   });
+
+  // Fair Billing Guarantee: Credit refunding states
+  const [refundingCredit, setRefundingCredit] = useState(false);
+  const [refundStatus, setRefundStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [refundMessage, setRefundMessage] = useState<string | null>(null);
+
+  const handleRefundCredit = async () => {
+    if (!profile.uid) return;
+    setRefundingCredit(true);
+    setRefundMessage(null);
+    try {
+      const currentCredits = profile.reportCredits ?? 0;
+      const newCredits = currentCredits + 1;
+      const userDocRef = doc(db, 'users', profile.uid);
+      await updateDoc(userDocRef, { reportCredits: newCredits });
+      if (setProfile) {
+        setProfile({ ...profile, reportCredits: newCredits });
+      }
+      setRefundStatus('success');
+      setRefundMessage(`🎉 Fair Billing Guarantee: 1 report credit has been credited back to your account! New balance: ${newCredits} credit${newCredits === 1 ? '' : 's'}.`);
+    } catch (err: any) {
+      console.error('Credit refund error:', err);
+      setRefundStatus('error');
+      setRefundMessage(err.message || 'Unable to refund credit. Please refresh and try again.');
+    } finally {
+      setRefundingCredit(false);
+    }
+  };
 
   // Expiration countdown removed for accurate HIPAA compliance record retention
 
@@ -317,11 +410,24 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
   };
 
   const handleDelete = async () => {
-    if (!id || !window.confirm('Are you sure you want to delete this report?')) return;
+    if (!id || !window.confirm('Are you sure you want to delete this report? If you encountered an internal error with this report, 1 report credit will also be refunded back to your balance.')) return;
     const reportPath = `reports/${id}`;
     try {
       await deleteDoc(doc(db, 'reports', id));
-      navigate('/history');
+      // Auto-restore credit when deleting a report that had issues
+      if (profile.uid) {
+        try {
+          const newCredits = (profile.reportCredits ?? 0) + 1;
+          const userDocRef = doc(db, 'users', profile.uid);
+          await updateDoc(userDocRef, { reportCredits: newCredits });
+          if (setProfile) {
+            setProfile({ ...profile, reportCredits: newCredits });
+          }
+        } catch (creditErr) {
+          console.warn('Could not auto-restore credit upon deletion:', creditErr);
+        }
+      }
+      navigate('/dashboard/history');
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, reportPath);
     }
@@ -501,6 +607,9 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
             errorDetails={emailErrorDetails} 
             recipientEmail={recipientEmail} 
             onTestEmailClick={(email) => setRecipientEmail(email)} 
+            onDismiss={() => { setEmailStatus('idle'); setEmailErrorDetails(null); }}
+            onRefundCredit={handleRefundCredit}
+            refundingCredit={refundingCredit}
           />
         )}
 
@@ -709,8 +818,59 @@ export default function ResultPage({ profile }: { profile: UserProfile }) {
           errorDetails={emailErrorDetails} 
           recipientEmail={recipientEmail} 
           onTestEmailClick={(email) => setRecipientEmail(email)} 
+          onDismiss={() => { setEmailStatus('idle'); setEmailErrorDetails(null); }}
+          onRefundCredit={handleRefundCredit}
+          refundingCredit={refundingCredit}
         />
       )}
+
+      {/* Fair Billing Refund Success Notification */}
+      {refundStatus === 'success' && refundMessage && (
+        <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 text-sm flex items-center justify-between gap-3 animate-in fade-in duration-300">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="text-emerald-600 dark:text-emerald-400 shrink-0" size={18} />
+            <p className="font-semibold">{refundMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRefundStatus('idle')}
+            className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Fair Billing Guarantee Card */}
+      <div className="p-4 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+            <Coins size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm text-slate-900 dark:text-white">Fair Billing Guarantee</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                100% Protected
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Did an app-side or notification error occur on this report? You are never charged for internal issues.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleRefundCredit}
+          disabled={refundingCredit}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer active:scale-95"
+          title="Refund 1 report credit back to your account"
+        >
+          {refundingCredit ? <Loader2 size={14} className="animate-spin" /> : <Coins size={14} className="text-amber-500" />}
+          <span>{refundingCredit ? 'Refunding...' : 'Refund 1 Credit for this Report'}</span>
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Result Card */}

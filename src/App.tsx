@@ -350,7 +350,7 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
             <Routes>
               <Route path="/" element={<DashboardPage profile={profile} setProfile={setProfile} />} />
               <Route path="/upload" element={<UploadPage profile={profile} setProfile={setProfile} />} />
-              <Route path="/report/:id" element={<ResultPage profile={profile} />} />
+              <Route path="/report/:id" element={<ResultPage profile={profile} setProfile={setProfile} />} />
               <Route path="/history" element={<HistoryPage profile={profile} />} />
               <Route path="/billing" element={<BillingPage profile={profile} setProfile={setProfile} />} />
               <Route path="/help" element={<HelpPage />} />

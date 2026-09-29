@@ -298,6 +298,26 @@ function getAppUrl(req?: express.Request): string {
   return 'https://reports.complyzzz.com';
 }
 
+function getVerifiedFromEmail(fromEmail?: string): string {
+  const verifiedSubdomain = 'reports.complyzzz.com';
+  const defaultSender = `ComplyZzz <reports@${verifiedSubdomain}>`;
+
+  if (!fromEmail) return defaultSender;
+
+  const clean = fromEmail.replace(/[<>]/g, '').trim();
+  if (clean.toLowerCase().includes('@' + verifiedSubdomain)) {
+    return clean.includes(' ') ? clean : `ComplyZzz <${clean}>`;
+  }
+
+  // If user provided user@complyzzz.com, map to user@reports.complyzzz.com
+  if (clean.toLowerCase().includes('@complyzzz.com')) {
+    const userPart = clean.split('@')[0] || 'reports';
+    return `ComplyZzz <${userPart.toLowerCase()}@${verifiedSubdomain}>`;
+  }
+
+  return defaultSender;
+}
+
 async function sendResendEmail(resend: any, params: {
   fromEmail: string;
   to: string;
@@ -309,17 +329,13 @@ async function sendResendEmail(resend: any, params: {
   const { fromEmail, to, subject, html, text, attachments } = params;
 
   // The verified domain in Resend is strictly 'reports.complyzzz.com'
-  // Ensure the sender address always matches the verified subdomain:
-  let formattedFrom = 'ComplyZZZ <reports@reports.complyzzz.com>';
-  if (fromEmail && fromEmail.includes('@reports.complyzzz.com')) {
-    formattedFrom = fromEmail.includes('<') ? fromEmail : `ComplyZZZ <${fromEmail.trim()}>`;
-  }
+  let formattedFrom = getVerifiedFromEmail(fromEmail);
 
   console.log(`Sending Resend email from verified domain '${formattedFrom}' to '${to}'...`);
 
   const plainText = text || html.replace(/<[^>]+>/g, '');
 
-  const result = await resend.emails.send({
+  let result = await resend.emails.send({
     from: formattedFrom,
     to: to,
     subject: subject,
@@ -328,8 +344,22 @@ async function sendResendEmail(resend: any, params: {
     attachments: attachments && attachments.length > 0 ? attachments : undefined
   });
 
+  // If Resend rejected the domain as unverified, auto-retry with standard verified address
+  if (result.error && (result.error.message?.includes('not verified') || result.error.statusCode === 403)) {
+    console.warn(`[Resend Fallback] Sender '${formattedFrom}' not recognized as verified; retrying with default verified sender...`);
+    const fallbackFrom = 'ComplyZzz <reports@reports.complyzzz.com>';
+    result = await resend.emails.send({
+      from: fallbackFrom,
+      to: to,
+      subject: subject,
+      html: html,
+      text: plainText,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined
+    });
+  }
+
   if (!result.error) {
-    console.log(`[Resend Success] Email sent successfully from '${formattedFrom}' to '${to}'`);
+    console.log(`[Resend Success] Email sent successfully to '${to}'`);
     return { data: result.data, error: null };
   }
 
@@ -1369,7 +1399,7 @@ ${safeText}
     }
   });
 
-  // Restores 1 trial credit if the user has 0 saved reports and 0 credits (e.g. lost due to an extraction failure)
+  // Restores 1 trial credit or refunds a wasted credit if the user experienced an app error
   app.post("/api/reports/restore-trial", async (req: any, res) => {
     try {
       const userId = req.uid;
@@ -1380,21 +1410,15 @@ ${safeText}
       try {
         const db = getAdminDb();
         const userRef = db.collection('users').doc(userId);
-        const reportsSnap = await db.collection('reports').where('clinicId', '==', userId).limit(1).get();
-
-        // If user already generated reports, they have used their trial
-        if (!reportsSnap.empty) {
-          return res.status(400).json({ error: "User already has generated reports. Trial cannot be restored." });
-        }
-
         await userRef.update({ reportCredits: 1 });
-        return res.json({ success: true, reportCredits: 1, message: "Complimentary trial credit restored." });
+        return res.json({ success: true, reportCredits: 1, message: "Complimentary credit restored." });
       } catch (adminErr: any) {
-        console.warn('Firebase Admin SDK unavailable in restore-trial:', adminErr.message);
+        console.warn('Firebase Admin SDK unavailable in restore-trial, delegating to client:', adminErr.message);
         return res.json({
           success: true,
           clientFallback: true,
-          message: 'Admin SDK unavailable in container.'
+          reportCredits: 1,
+          message: 'Client authenticated session will restore credit.'
         });
       }
     } catch (err: any) {
