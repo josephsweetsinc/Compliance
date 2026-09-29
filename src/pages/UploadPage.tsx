@@ -8,6 +8,7 @@ import { extractTextFromPdf } from '../services/pdfService';
 import { extractComplianceMetrics } from '../services/geminiService';
 import { parseCpapMetrics } from '../services/cpapParser';
 import { sendSummaryNotificationToUser } from '../services/emailService';
+import { generateSampleCpapPdf } from '../utils/sampleCpapGenerator';
 import { 
   FileUp, 
   Loader2, 
@@ -148,6 +149,15 @@ export default function UploadPage({
       addPdfFiles(acceptedFiles);
     }
   }, [addPdfFiles]);
+
+  const handleLoadSample = (type: 'compliant' | 'non_compliant') => {
+    try {
+      const sampleFile = generateSampleCpapPdf(type);
+      addPdfFiles([sampleFile]);
+    } catch (e: any) {
+      setError('Could not generate sample report: ' + (e.message || 'Unknown error'));
+    }
+  };
 
   const {
     getRootProps,
@@ -652,57 +662,115 @@ export default function UploadPage({
           </div>
 
           {files.length === 0 ? (
-            /* Multi-File Primary Drop Zone using react-dropzone */
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-3xl p-6 sm:p-14 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden select-none active:scale-[0.99] ${
-                isDragReject
-                  ? 'border-rose-500 bg-rose-50 ring-4 ring-rose-100'
-                  : isDragAccept || isDragActive
-                  ? 'border-blue-500 bg-blue-50/90 ring-4 ring-blue-100 scale-[1.01] shadow-lg'
-                  : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/40'
-              }`}
-            >
-              <input {...getInputProps()} />
+            <div className="space-y-4">
+              {/* Multi-File Primary Drop Zone using react-dropzone */}
+              <div
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-3xl p-6 sm:p-14 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group relative overflow-hidden select-none active:scale-[0.99] ${
+                  isDragReject
+                    ? 'border-rose-500 bg-rose-50 ring-4 ring-rose-100'
+                    : isDragAccept || isDragActive
+                    ? 'border-blue-500 bg-blue-50/90 ring-4 ring-blue-100 scale-[1.01] shadow-lg'
+                    : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/40'
+                }`}
+              >
+                <input {...getInputProps()} />
 
-              <div className={`p-3.5 sm:p-4 rounded-2xl mb-3 sm:mb-4 transition-all duration-300 ${
-                isDragReject
-                  ? 'bg-rose-600 text-white'
-                  : isDragActive 
-                  ? 'bg-blue-600 text-white scale-110 shadow-lg animate-bounce' 
-                  : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100 group-hover:scale-105'
-              }`}>
-                <FileUp size={32} className="sm:w-9 sm:h-9" />
+                <div className={`p-3.5 sm:p-4 rounded-2xl mb-3 sm:mb-4 transition-all duration-300 ${
+                  isDragReject
+                    ? 'bg-rose-600 text-white'
+                    : isDragActive 
+                    ? 'bg-blue-600 text-white scale-110 shadow-lg animate-bounce' 
+                    : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100 group-hover:scale-105'
+                }`}>
+                  <FileUp size={32} className="sm:w-9 sm:h-9" />
+                </div>
+
+                <p className={`text-base sm:text-lg font-bold mb-1 text-center transition-colors ${
+                  isDragReject ? 'text-rose-700' : isDragActive ? 'text-blue-700' : 'text-slate-800'
+                }`}>
+                  {isDragReject
+                    ? 'Invalid file type (PDF required)'
+                    : isDragActive
+                    ? 'Drop CPAP PDF reports to queue'
+                    : 'Tap to Select or Drop CPAP Reports'}
+                </p>
+
+                <p className="text-slate-500 text-xs sm:text-sm mb-4 text-center max-w-md px-2">
+                  {isDragActive
+                    ? 'Release to load documents into your analysis queue'
+                    : 'Upload single or multiple CPAP machine PDF reports for instant automated compliance checking'}
+                </p>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 px-2 text-center">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100/80 border border-blue-200 px-3 py-1.5 rounded-lg">
+                    <Sparkles size={13} className="text-blue-600 shrink-0" />
+                    <span>ResMed AirView, Philips Care Orchestrator & DeVilbiss</span>
+                  </span>
+                </div>
+
+                <p className="mt-4 sm:mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl font-medium select-none">
+                  <span className="text-slate-600">🔒 Secure browser extraction</span>
+                  <span className="text-slate-300 hidden sm:inline">•</span>
+                  <span className="text-slate-600">Up to 10 files per batch</span>
+                </p>
               </div>
 
-              <p className={`text-base sm:text-lg font-bold mb-1 text-center transition-colors ${
-                isDragReject ? 'text-rose-700' : isDragActive ? 'text-blue-700' : 'text-slate-800'
-              }`}>
-                {isDragReject
-                  ? 'Invalid file type (PDF required)'
-                  : isDragActive
-                  ? 'Drop CPAP PDF reports to queue'
-                  : 'Tap to Select or Drop CPAP Reports'}
-              </p>
+              {/* Quick Demo Sample Reports */}
+              <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4 sm:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-blue-600" />
+                    Don't have a CPAP PDF on hand? Try a demo report
+                  </h3>
+                  <span className="text-[11px] text-slate-500">
+                    Loads instant synthetic clinical CPAP reports into the queue
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleLoadSample('compliant')}
+                    className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50 transition-all text-left group shadow-xs cursor-pointer"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                        <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-900 truncate">
+                          Marcus Vance (ResMed AirSense 11)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        Compliant • 83.3% days ≥4h • 6.8h avg usage
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded shrink-0 border border-emerald-200">
+                      Load Compliant
+                    </span>
+                  </button>
 
-              <p className="text-slate-500 text-xs sm:text-sm mb-4 text-center max-w-md px-2">
-                {isDragActive
-                  ? 'Release to load documents into your analysis queue'
-                  : 'Upload single or multiple CPAP machine PDF reports for instant automated compliance checking'}
-              </p>
-
-              <div className="flex flex-wrap items-center justify-center gap-2 px-2 text-center">
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100/80 border border-blue-200 px-3 py-1.5 rounded-lg">
-                  <Sparkles size={13} className="text-blue-600 shrink-0" />
-                  <span>ResMed AirView, Philips Care Orchestrator & DeVilbiss</span>
-                </span>
+                  <button
+                    type="button"
+                    onClick={() => handleLoadSample('non_compliant')}
+                    className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50/50 transition-all text-left group shadow-xs cursor-pointer"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
+                        <span className="text-xs font-bold text-slate-800 group-hover:text-rose-900 truncate">
+                          Robert Chen (Philips DreamStation 2)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        Non-Compliant • 46.7% days ≥4h • High AHI
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold text-rose-700 bg-rose-100/90 px-2 py-0.5 rounded shrink-0 border border-rose-200">
+                      Load Non-Compliant
+                    </span>
+                  </button>
+                </div>
               </div>
-
-              <p className="mt-4 sm:mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl font-medium select-none">
-                <span className="text-slate-600">🔒 Secure browser extraction</span>
-                <span className="text-slate-300 hidden sm:inline">•</span>
-                <span className="text-slate-600">Up to 10 files per batch</span>
-              </p>
             </div>
           ) : (
             /* Queue Container with Drop Target for Adding More Files */
