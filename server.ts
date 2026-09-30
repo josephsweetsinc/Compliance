@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -349,13 +348,18 @@ function getAdminApp(): AdminApp {
   const projectId = firebaseAppletConfig.projectId;
   const svcKeyRaw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim();
 
-  if (svcKeyRaw) {
-    const svcKey = JSON.parse(svcKeyRaw);
-    adminApp = initAdminApp({ credential: cert(svcKey), projectId });
-  } else {
-    // Falls back to Application Default Credentials, which is populated
-    // automatically when running on Google Cloud / Firebase infrastructure.
-    adminApp = initAdminApp({ credential: applicationDefault(), projectId });
+  try {
+    if (svcKeyRaw) {
+      const svcKey = JSON.parse(svcKeyRaw);
+      adminApp = initAdminApp({ credential: cert(svcKey), projectId });
+    } else {
+      // Falls back to Application Default Credentials, which is populated
+      // automatically when running on Google Cloud / Firebase infrastructure.
+      adminApp = initAdminApp({ credential: applicationDefault(), projectId });
+    }
+  } catch (err) {
+    console.warn("Firebase Admin initialized with default project config:", err);
+    adminApp = initAdminApp({ projectId });
   }
   return adminApp;
 }
@@ -778,6 +782,10 @@ async function startServer() {
   app.use('/api', apiRateLimiter(60, 60 * 1000), requireAuthUnlessPublic);
 
   // Health check endpoint for dev server, container ingress, and health monitors
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
@@ -1867,14 +1875,17 @@ ${safeText}
   // Vite middleware for development, static dist serving for production
   const distPath = path.join(process.cwd(), 'dist');
   const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
+  const isDev = process.env.npm_lifecycle_event === "dev";
 
-  if (process.env.NODE_ENV === "production" || (hasDist && process.env.npm_lifecycle_event === "start")) {
+  if (!isDev && hasDist) {
+    console.log("Serving production static assets from dist");
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   } else {
     try {
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
