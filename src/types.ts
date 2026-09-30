@@ -68,5 +68,30 @@ export interface FirestoreErrorInfo {
       email: string | null;
       photoUrl: string | null;
     }[];
-  }
+  };
 }
+
+export type ErrorCategory = 
+  | 'API_FAILURE' 
+  | 'RENDER_ERROR' 
+  | 'NETWORK_ERROR' 
+  | 'FIREBASE_ERROR' 
+  | 'AUTH_ERROR' 
+  | 'UNHANDLED_REJECTION';
+
+export interface ErrorLog {
+  id: string;
+  errorType: ErrorCategory;
+  message: string;
+  apiEndpoint?: string;
+  status?: number;
+  errorName?: string;
+  stack?: string;
+  userId?: string | null;
+  userEmail?: string | null;
+  url?: string;
+  userAgent?: string;
+  context?: Record<string, any>;
+  createdAt: string;
+}
+

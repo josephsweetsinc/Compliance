@@ -1,5 +1,27 @@
-import React from 'react';
-import { HelpCircle, ChevronDown, ChevronUp, BookOpen, ShieldCheck, AlertTriangle, FileText, Mail, Info } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  HelpCircle, 
+  ChevronDown, 
+  ChevronUp, 
+  BookOpen, 
+  ShieldCheck, 
+  AlertTriangle, 
+  FileText, 
+  Mail, 
+  Info, 
+  Activity, 
+  Server, 
+  RefreshCw, 
+  Copy, 
+  Check, 
+  CheckCircle2, 
+  Bug, 
+  Trash2 
+} from 'lucide-react';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
+import { ErrorLog } from '../types';
+import { logErrorToFirestore } from '../services/errorLoggingService';
 
 interface FAQItem {
   question: string;
@@ -50,13 +72,99 @@ const faqs: FAQItem[] = [
 ];
 
 export default function HelpPage() {
-  const [openIndex, setOpenIndex] = React.useState<number | null>(0);
+  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<string | null>(null);
+  const [simulatedRenderCrash, setSimulatedRenderCrash] = useState(false);
+
+  // Subscribe to recent diagnostic error logs for this authenticated user
+  useEffect(() => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setLogsLoading(false);
+      return;
+    }
+
+    try {
+      const logsQuery = query(
+        collection(db, 'error_logs'),
+        where('userId', '==', currentUser.uid),
+        orderBy('createdAt', 'desc'),
+        limit(15)
+      );
+
+      const unsubscribe = onSnapshot(
+        logsQuery,
+        (snapshot) => {
+          const fetchedLogs: ErrorLog[] = [];
+          snapshot.forEach((doc) => {
+            fetchedLogs.push(doc.data() as ErrorLog);
+          });
+          setErrorLogs(fetchedLogs);
+          setLogsLoading(false);
+        },
+        (err) => {
+          console.warn('[HelpPage] Notice querying error_logs:', err);
+          setLogsLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('[HelpPage] error_logs listener setup notice:', e);
+      setLogsLoading(false);
+    }
+  }, []);
+
+  const handleCopyId = (id: string) => {
+    if (navigator?.clipboard) {
+      navigator.clipboard.writeText(id);
+      setCopiedLogId(id);
+      setTimeout(() => setCopiedLogId(null), 2000);
+    }
+  };
+
+  const handleSimulateApiFailure = async () => {
+    setTestStatus('Sending simulated API failure to /api/extract-metrics...');
+    try {
+      const res = await fetch('/api/extract-metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'INVALID_EMPTY_TEST_DATA' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      
+      const logId = await logErrorToFirestore({
+        errorType: 'API_FAILURE',
+        message: data.error || 'Diagnostic test API error',
+        apiEndpoint: '/api/extract-metrics',
+        status: res.status,
+        context: {
+          testMode: true,
+          triggeredBy: 'help_page_diagnostics',
+        },
+      });
+
+      setTestStatus(`Simulated API failure logged to Firestore successfully (Ref: ${logId})`);
+      setTimeout(() => setTestStatus(null), 5000);
+    } catch (err: any) {
+      setTestStatus(`Test completed: ${err.message}`);
+      setTimeout(() => setTestStatus(null), 5000);
+    }
+  };
+
+  if (simulatedRenderCrash) {
+    throw new Error('This is a simulated React rendering crash triggered from Help & Diagnostics to test the Global Error Boundary.');
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-12">
       <header>
         <h1 className="text-3xl font-black text-slate-800 tracking-tight">Help & Documentation</h1>
-        <p className="text-slate-500">Guidelines, compliance criteria, and common questions.</p>
+        <p className="text-slate-500">Guidelines, compliance criteria, diagnostics, and common questions.</p>
       </header>
 
       {/* Quick Start Cards */}
@@ -73,50 +181,178 @@ export default function HelpPage() {
             <ShieldCheck size={20} />
           </div>
           <h3 className="font-bold text-slate-800 mb-2">DOT Standards</h3>
-          <p className="text-sm text-slate-500 leading-relaxed">Understand the 70/4 rule and other FMCSA criteria used in our automated assessment.</p>
+          <p className="text-sm text-slate-500 leading-relaxed">FMCSA 49 CFR §391.41 compliance criteria: 4+ hours per night on 70% of days.</p>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center text-rose-600 mb-4">
-            <AlertTriangle size={20} />
+          <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 mb-4">
+            <Activity size={20} />
           </div>
-          <h3 className="font-bold text-slate-800 mb-2">Troubleshooting</h3>
-          <p className="text-sm text-slate-500 leading-relaxed">Fix issues with PDF parsing, OCR resolution, or email delivery failures.</p>
+          <h3 className="font-bold text-slate-800 mb-2">Diagnostic Logs</h3>
+          <p className="text-sm text-slate-500 leading-relaxed">Automatic logging of API failures and rendering boundary catches in Firestore.</p>
         </div>
       </div>
 
-      {/* FAQ Section */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-8 border-b border-slate-50">
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <HelpCircle className="text-blue-600" />
-            Frequently Asked Questions
-          </h2>
+      {/* System Diagnostics & Error Logs Section */}
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+              <Activity size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 tracking-tight">System Diagnostics & Error Logs</h2>
+              <p className="text-xs text-slate-500">Live records from the dedicated Firestore <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-700">error_logs</code> collection.</p>
+            </div>
+          </div>
+
+          {/* Test Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSimulateApiFailure}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-xl border border-amber-200 transition-colors cursor-pointer"
+            >
+              <Server size={14} />
+              <span>Simulate API Error</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSimulatedRenderCrash(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-semibold rounded-xl border border-rose-200 transition-colors cursor-pointer"
+            >
+              <Bug size={14} />
+              <span>Test Error Boundary</span>
+            </button>
+          </div>
         </div>
-        <div className="divide-y divide-slate-50">
+
+        {testStatus && (
+          <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-blue-600 shrink-0" />
+            <span>{testStatus}</span>
+          </div>
+        )}
+
+        {/* Logs Table / List */}
+        {logsLoading ? (
+          <div className="py-8 text-center text-xs text-slate-400">Loading diagnostic logs from Firestore...</div>
+        ) : errorLogs.length === 0 ? (
+          <div className="py-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-6">
+            <CheckCircle2 size={28} className="mx-auto text-emerald-500 mb-2" />
+            <p className="text-sm font-semibold text-slate-700">No Error Logs Recorded</p>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Your session has experienced 0 unhandled failures. When an API or render failure occurs, it will be automatically captured here.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {errorLogs.map((log) => {
+              const isExpanded = expandedLogId === log.id;
+              const dateStr = new Date(log.createdAt).toLocaleString();
+              
+              let badgeColor = 'bg-slate-100 text-slate-700 border-slate-200';
+              if (log.errorType === 'API_FAILURE') badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+              if (log.errorType === 'RENDER_ERROR') badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+              if (log.errorType === 'NETWORK_ERROR') badgeColor = 'bg-amber-50 text-amber-700 border-amber-200';
+
+              return (
+                <div key={log.id} className="rounded-xl border border-slate-200 overflow-hidden bg-white text-xs">
+                  <div className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor}`}>
+                        {log.errorType}
+                      </span>
+                      {log.status && (
+                        <span className="px-2 py-0.5 rounded bg-slate-200 font-mono font-semibold text-slate-700">
+                          HTTP {log.status}
+                        </span>
+                      )}
+                      <span className="font-semibold text-slate-900 truncate">
+                        {log.apiEndpoint || log.errorName || 'Error'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-[11px] text-slate-400 font-mono">{dateStr}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyId(log.id)}
+                        title="Copy Log ID"
+                        className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 font-mono cursor-pointer py-1 px-1.5 rounded hover:bg-slate-200"
+                      >
+                        <span>{log.id.substring(0, 12)}...</span>
+                        {copiedLogId === log.id ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                        className="text-slate-500 hover:text-slate-800 cursor-pointer p-1"
+                      >
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Preview message */}
+                  <div className="px-4 py-2.5 text-slate-600 border-t border-slate-100 font-mono text-[11px] bg-white">
+                    {log.message}
+                  </div>
+
+                  {/* Expanded Diagnostics */}
+                  {isExpanded && (
+                    <div className="p-4 bg-slate-950 text-slate-300 font-mono text-[11px] border-t border-slate-200 space-y-2 overflow-x-auto">
+                      <div><span className="text-slate-500">Log ID:</span> {log.id}</div>
+                      <div><span className="text-slate-500">Timestamp:</span> {log.createdAt}</div>
+                      {log.apiEndpoint && <div><span className="text-slate-500">Endpoint:</span> {log.apiEndpoint}</div>}
+                      {log.status && <div><span className="text-slate-500">Status:</span> {log.status}</div>}
+                      {log.url && <div><span className="text-slate-500">Route URL:</span> {log.url}</div>}
+                      {log.userAgent && <div><span className="text-slate-500">User Agent:</span> {log.userAgent}</div>}
+                      {log.context && (
+                        <div>
+                          <span className="text-slate-500">Context:</span>
+                          <pre className="mt-1 text-slate-400 whitespace-pre-wrap">{JSON.stringify(log.context, null, 2)}</pre>
+                        </div>
+                      )}
+                      {log.stack && (
+                        <div>
+                          <span className="text-slate-500">Stack Trace:</span>
+                          <pre className="mt-1 text-rose-400 whitespace-pre-wrap leading-tight">{log.stack}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Frequently Asked Questions */}
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold text-slate-800">Frequently Asked Questions</h2>
+        <div className="space-y-4">
           {faqs.map((faq, index) => (
-            <div key={index} className="group">
+            <div
+              key={index}
+              className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden transition-all duration-200"
+            >
               <button
                 type="button"
                 onClick={() => setOpenIndex(openIndex === index ? null : index)}
-                className="w-full text-left p-4 sm:p-6 flex items-start sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors cursor-pointer min-h-[48px]"
+                className="w-full p-4 sm:p-6 text-left flex items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors cursor-pointer"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 flex-1">
-                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 sm:py-1 rounded-md self-start ${
-                    faq.category === 'usage' ? 'bg-blue-100 text-blue-700' :
-                    faq.category === 'criteria' ? 'bg-emerald-100 text-emerald-700' :
-                    'bg-slate-100 text-slate-700'
-                  }`}>
-                    {faq.category}
-                  </span>
-                  <span className="font-bold text-slate-800 text-sm sm:text-base group-hover:text-blue-600 transition-colors">
-                    {faq.question}
-                  </span>
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
+                    <HelpCircle size={18} />
+                  </div>
+                  <span className="font-bold text-slate-800 text-sm sm:text-base leading-snug">{faq.question}</span>
                 </div>
-                <div className="shrink-0 pt-0.5 sm:pt-0">
+                <div className="text-slate-400 shrink-0">
                   {openIndex === index ? (
-                    <ChevronUp className="text-slate-400" size={20} />
+                    <ChevronUp size={20} className="text-blue-600" />
                   ) : (
-                    <ChevronDown className="text-slate-400" size={20} />
+                    <ChevronDown size={20} />
                   )}
                 </div>
               </button>

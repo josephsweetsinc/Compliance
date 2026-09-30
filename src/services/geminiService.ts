@@ -1,6 +1,7 @@
 import { ComplianceMetrics } from "../types";
 import { auth } from "../lib/firebase";
 import { parseCpapMetrics } from "./cpapParser";
+import { logErrorToFirestore, ApiError } from "./errorLoggingService";
 
 export async function extractComplianceMetrics(text: string): Promise<ComplianceMetrics> {
   try {
@@ -37,10 +38,23 @@ export async function extractComplianceMetrics(text: string): Promise<Compliance
 
     const serverMsg = data?.error || `Server returned status ${response.status}`;
     const cleanMsg = serverMsg.toLowerCase();
+    
+    // Log the API-specific extraction failure to Firestore
+    logErrorToFirestore({
+      errorType: 'API_FAILURE',
+      message: serverMsg,
+      apiEndpoint: '/api/extract-metrics',
+      status: response.status,
+      context: {
+        hasData: !!data,
+        textLength: text.length,
+      },
+    }).catch(() => {});
+
     if (cleanMsg.includes("gemini") || cleanMsg.includes("api key") || cleanMsg.includes("prepayment") || cleanMsg.includes("billing") || cleanMsg.includes("402") || cleanMsg.includes("403")) {
-      throw new Error("Unable to automatically extract compliance metrics from this document. Please ensure the CPAP report contains readable text.");
+      throw new ApiError("Unable to automatically extract compliance metrics from this document. Please ensure the CPAP report contains readable text.", response.status, '/api/extract-metrics', data);
     }
-    throw new Error(serverMsg);
+    throw new ApiError(serverMsg, response.status, '/api/extract-metrics', data);
   } catch (error: any) {
     // Attempt local deterministic parser if network error occurred
     const fallback = parseCpapMetrics(text);
@@ -50,6 +64,15 @@ export async function extractComplianceMetrics(text: string): Promise<Compliance
     }
 
     console.warn("Extraction notice:", error.message || error);
+
+    // Record the failure to Firestore error_logs for root-cause debugging
+    logErrorToFirestore({
+      errorType: error instanceof ApiError ? 'API_FAILURE' : 'NETWORK_ERROR',
+      message: error.message || 'CPAP extraction failure',
+      apiEndpoint: '/api/extract-metrics',
+      status: error instanceof ApiError ? error.status : undefined,
+      error,
+    }).catch(() => {});
 
     const errStr = (error.message || '').toLowerCase();
     if (errStr.includes("suspended") || errStr.includes("api key") || errStr.includes("prepayment") || errStr.includes("gemini") || errStr.includes("billing") || errStr.includes("402") || errStr.includes("403")) {

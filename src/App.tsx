@@ -92,7 +92,7 @@ function App() {
   return (
     <Router>
       <Analytics />
-      <ErrorBoundary id="root-app-error-boundary">
+      <ErrorBoundary id="root-app-error-boundary" isGlobal={true}>
         <Routes>
           <Route path="/" element={user ? <Navigate to="/dashboard" /> : <LandingPage />} />
           <Route path="/login" element={<LoginRedirect user={user} />} />

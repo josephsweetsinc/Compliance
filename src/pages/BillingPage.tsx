@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { UserProfile } from '../types';
 import { auth } from '../lib/firebase';
+import { logErrorToFirestore } from '../services/errorLoggingService';
 import { 
   CreditCard, 
   Check, 
@@ -380,6 +381,14 @@ export default function BillingPage({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        logErrorToFirestore({
+          errorType: 'API_FAILURE',
+          message: data.error || 'Failed to initialize checkout session on server.',
+          apiEndpoint: '/api/billing/create-checkout-session',
+          status: res.status,
+          context: { planType, quantity },
+        }).catch(() => {});
+
         const parsed = interpretStripeError(
           data,
           data.error || 'Failed to initialize checkout session on server.',
@@ -461,6 +470,13 @@ export default function BillingPage({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        logErrorToFirestore({
+          errorType: 'API_FAILURE',
+          message: data.error || 'Failed to create customer portal session.',
+          apiEndpoint: '/api/billing/create-portal-session',
+          status: res.status,
+        }).catch(() => {});
+
         const parsed = interpretStripeError(
           data,
           data.error || 'Failed to create customer portal session.',

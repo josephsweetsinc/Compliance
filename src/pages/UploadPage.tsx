@@ -8,6 +8,7 @@ import { extractTextFromPdf } from '../services/pdfService';
 import { extractComplianceMetrics } from '../services/geminiService';
 import { parseCpapMetrics } from '../services/cpapParser';
 import { sendSummaryNotificationToUser } from '../services/emailService';
+import { logErrorToFirestore } from '../services/errorLoggingService';
 import { generateSampleCpapPdf } from '../utils/sampleCpapGenerator';
 import { 
   FileUp, 
@@ -354,6 +355,17 @@ export default function UploadPage({
       } catch (err: any) {
         console.warn(`Notice while processing file ${file.name}:`, err.message || err);
         const rawErrMsg = err.message || 'Unable to parse CPAP compliance document';
+
+        logErrorToFirestore({
+          errorType: 'API_FAILURE',
+          message: `File analysis failed for ${file.name}: ${rawErrMsg}`,
+          apiEndpoint: '/api/extract-metrics',
+          context: {
+            fileName: file.name,
+            fileSize: file.size,
+          },
+        }).catch(() => {});
+
         const cleanMsg = (rawErrMsg.toLowerCase().includes('gemini') || rawErrMsg.toLowerCase().includes('api key') || rawErrMsg.toLowerCase().includes('prepayment') || rawErrMsg.toLowerCase().includes('billing') || rawErrMsg.toLowerCase().includes('402'))
           ? 'Unable to extract compliance metrics from this document. Please ensure the CPAP report contains clear text data.'
           : rawErrMsg;

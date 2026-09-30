@@ -757,7 +757,7 @@ async function startServer() {
   // Stripe calls the webhook directly with no user session (it authenticates
   // via the webhook signature instead), pricing config is public, and document
   // text metric extraction has its own strict extractRateLimiter + payload size bounds.
-  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook', '/health', '/extract-metrics']);
+  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook', '/health', '/extract-metrics', '/log-error']);
   const requireAuthUnlessPublic = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (PUBLIC_API_PATHS.has(req.path)) {
       // If client provides an Authorization token on a public path, verify and attach UID quietly
@@ -788,6 +788,101 @@ async function startServer() {
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Dedicated server-side logger to persistent Firestore 'error_logs' collection
+  async function logServerErrorToFirestore(params: {
+    errorType: string;
+    message: string;
+    apiEndpoint?: string;
+    status?: number;
+    userId?: string;
+    userEmail?: string;
+    context?: Record<string, any>;
+    stack?: string;
+  }) {
+    try {
+      const logId = `err_srv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const db = getAdminDb();
+      await db.collection('error_logs').doc(logId).set({
+        id: logId,
+        errorType: params.errorType,
+        message: params.message.substring(0, 2000),
+        apiEndpoint: params.apiEndpoint || null,
+        status: typeof params.status === 'number' ? params.status : null,
+        userId: params.userId || null,
+        userEmail: params.userEmail || null,
+        context: params.context || null,
+        stack: params.stack ? params.stack.substring(0, 4500) : null,
+        createdAt: new Date().toISOString(),
+      });
+      console.log(`[ErrorLog] Recorded server error log in Firestore: ${logId}`);
+      return logId;
+    } catch (err) {
+      console.warn('[logServerErrorToFirestore] Notice recording error log:', err);
+      return null;
+    }
+  }
+
+  // Diagnostic error logging endpoint: writes client and API failure reports to Firestore 'error_logs'
+  app.post("/api/log-error", async (req, res) => {
+    try {
+      const {
+        id,
+        errorType,
+        message,
+        apiEndpoint,
+        status,
+        errorName,
+        stack,
+        url,
+        userAgent,
+        context,
+        userId: clientUserId,
+        userEmail: clientUserEmail,
+      } = req.body || {};
+
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Missing required error message." });
+      }
+
+      const logId = (typeof id === 'string' && id.length > 0 && id.length <= 128 && /^[a-zA-Z0-9_\-]+$/.test(id))
+        ? id
+        : `err_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+      const verifiedUid = (req as any).uid || (typeof clientUserId === 'string' ? clientUserId : null);
+      const verifiedEmail = (req as any).userEmail || (typeof clientUserEmail === 'string' ? clientUserEmail : null);
+
+      const logRecord: Record<string, any> = {
+        id: logId,
+        errorType: typeof errorType === 'string' ? errorType.substring(0, 64) : 'API_FAILURE',
+        message: message.substring(0, 2000),
+        createdAt: new Date().toISOString(),
+      };
+
+      if (apiEndpoint && typeof apiEndpoint === 'string') logRecord.apiEndpoint = apiEndpoint.substring(0, 500);
+      if (typeof status === 'number') logRecord.status = status;
+      if (errorName && typeof errorName === 'string') logRecord.errorName = errorName.substring(0, 128);
+      if (stack && typeof stack === 'string') logRecord.stack = stack.substring(0, 5000);
+      if (url && typeof url === 'string') logRecord.url = url.substring(0, 500);
+      if (userAgent && typeof userAgent === 'string') logRecord.userAgent = userAgent.substring(0, 500);
+      if (verifiedUid) logRecord.userId = verifiedUid.substring(0, 128);
+      if (verifiedEmail) logRecord.userEmail = verifiedEmail.substring(0, 256);
+      if (context && typeof context === 'object') logRecord.context = context;
+
+      try {
+        const db = getAdminDb();
+        await db.collection('error_logs').doc(logId).set(logRecord);
+        console.log(`[ErrorLog] Recorded error log ${logId} in Firestore via Admin SDK (${logRecord.errorType})`);
+      } catch (dbErr) {
+        console.warn(`[ErrorLog] Could not write error log to Firestore via Admin SDK:`, dbErr);
+      }
+
+      return res.json({ success: true, logId });
+    } catch (err: any) {
+      console.error("[ErrorLog] Failed to process error log:", err);
+      return res.status(500).json({ error: "Failed to record error log." });
+    }
   });
 
   // Clinical & Physiological Bounds Validation:
@@ -978,6 +1073,17 @@ ${safeText}
 
         // Server-side logging for administrator only - never expose internal billing or API key details to customers
         console.error('[Gemini API Internal Notice - Check Key or AI Studio Billing]:', geminiErr?.message || geminiErr);
+
+        await logServerErrorToFirestore({
+          errorType: 'API_FAILURE',
+          message: `CPAP metric extraction failed: ${geminiErr?.message || 'Model unparseable'}`,
+          apiEndpoint: '/api/extract-metrics',
+          status: 422,
+          userId: (req as any).uid,
+          userEmail: (req as any).userEmail,
+          context: { textLength: text.length, snippet: text.substring(0, 150) },
+          stack: geminiErr?.stack,
+        });
 
         return res.status(422).json({
           error: "Unable to automatically extract compliance metrics from this document. Please ensure the document is a readable CPAP compliance report with usage data."

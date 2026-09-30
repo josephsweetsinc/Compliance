@@ -86,9 +86,26 @@ service cloud.firestore {
              (!('dob' in data) || (data.dob is string && data.dob.size() <= 100)) &&
              (!('licenseNumber' in data) || (data.licenseNumber is string && data.licenseNumber.size() <= 100)) &&
              (!('licenseState' in data) || (data.licenseState is string && data.licenseState.size() <= 100)) &&
-             data.metrics is map &&
+              data.metrics is map &&
              data.status in ['Compliant', 'Non-Compliant'] &&
              data.createdAt is string;
+    }
+
+    function isValidErrorLog(data) {
+      return data.keys().hasAll(['id', 'errorType', 'message', 'createdAt']) &&
+             data.id is string && isValidId(data.id) &&
+             data.errorType is string && data.errorType in ['API_FAILURE', 'RENDER_ERROR', 'NETWORK_ERROR', 'FIREBASE_ERROR', 'AUTH_ERROR', 'UNHANDLED_REJECTION'] &&
+             data.message is string && data.message.size() > 0 && data.message.size() <= 2000 &&
+             data.createdAt is string &&
+             (!('userId' in data) || data.userId == null || (data.userId is string && data.userId.size() <= 128)) &&
+             (!('userEmail' in data) || data.userEmail == null || (data.userEmail is string && data.userEmail.size() <= 256)) &&
+             (!('apiEndpoint' in data) || data.apiEndpoint == null || (data.apiEndpoint is string && data.apiEndpoint.size() <= 500)) &&
+             (!('status' in data) || data.status == null || data.status is number) &&
+             (!('errorName' in data) || data.errorName == null || (data.errorName is string && data.errorName.size() <= 128)) &&
+             (!('stack' in data) || data.stack == null || (data.stack is string && data.stack.size() <= 5000)) &&
+             (!('url' in data) || data.url == null || (data.url is string && data.url.size() <= 500)) &&
+             (!('userAgent' in data) || data.userAgent == null || (data.userAgent is string && data.userAgent.size() <= 500)) &&
+             (!('context' in data) || data.context == null || data.context is map);
     }
 
     // ===============================================================
@@ -113,6 +130,17 @@ service cloud.firestore {
                        incoming().clinicId == existing().clinicId &&
                        incoming().createdAt == existing().createdAt;
       allow delete: if isDocOwner();
+    }
+
+    match /error_logs/{logId} {
+      // Diagnostic error logs can be submitted by clients encountering errors.
+      // If signed in, verify userId matches caller or is null to prevent spoofing.
+      allow create: if isValidId(logId) && isValidErrorLog(incoming()) && incoming().id == logId &&
+                       (!isAuthenticated() || incoming().get('userId', null) == null || incoming().userId == request.auth.uid);
+      // Users can inspect their own session error logs
+      allow read: if isAuthenticated() && (resource == null || resource.data.get('userId', null) == request.auth.uid);
+      // Immutable audit records
+      allow update, delete: if false;
     }
   }
 }

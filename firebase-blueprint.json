@@ -49,6 +49,31 @@
         "expiresAt": { "type": "string", "format": "date-time", "description": "When the report data will be deleted from the system." }
       },
       "required": ["id", "clinicId", "patientName", "metrics", "status", "createdAt", "expiresAt"]
+    },
+    "ErrorLog": {
+      "title": "Error Log",
+      "description": "Stores diagnostic logs for caught rendering and API failures to identify root causes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique error log ID." },
+        "errorType": {
+          "type": "string",
+          "enum": ["API_FAILURE", "RENDER_ERROR", "NETWORK_ERROR", "FIREBASE_ERROR", "AUTH_ERROR", "UNHANDLED_REJECTION"],
+          "description": "Classification of the error."
+        },
+        "message": { "type": "string", "description": "Human-readable error description." },
+        "apiEndpoint": { "type": "string", "description": "HTTP endpoint URL if this was an API-specific failure." },
+        "status": { "type": "number", "description": "HTTP status code or application error code." },
+        "errorName": { "type": "string", "description": "Class or name of the error exception." },
+        "stack": { "type": "string", "description": "Sanitized stack trace." },
+        "userId": { "type": "string", "description": "User UID associated with the session, if authenticated." },
+        "userEmail": { "type": "string", "description": "User email address, if available." },
+        "url": { "type": "string", "description": "Route pathname or URL where the error occurred." },
+        "userAgent": { "type": "string", "description": "Browser user agent for device diagnosis." },
+        "context": { "type": "object", "description": "Sanitized operational context metadata." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "ISO timestamp when the error occurred." }
+      },
+      "required": ["id", "errorType", "message", "createdAt"]
     }
   },
   "firestore": {
@@ -59,6 +84,10 @@
     "/reports/{reportId}": {
       "schema": "ComplianceReport",
       "description": "Individual CPAP compliance report."
+    },
+    "/error_logs/{logId}": {
+      "schema": "ErrorLog",
+      "description": "Collection of caught API, network, and rendering failure logs."
     }
   }
 }
