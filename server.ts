@@ -790,6 +790,67 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Helper to write documents to Firestore using the official Web REST API with the Web API Key
+  // This bypasses ADC/gRPC service-account requirements that cause Error 7 PERMISSION_DENIED.
+  async function writeFirestoreDocumentRest(
+    collectionName: string,
+    documentId: string,
+    data: Record<string, any>,
+    authToken?: string
+  ): Promise<boolean> {
+    try {
+      const { projectId, firestoreDatabaseId, apiKey } = firebaseAppletConfig;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${firestoreDatabaseId}/documents/${collectionName}/${documentId}?key=${apiKey}`;
+
+      const fields: Record<string, any> = {};
+      for (const [key, val] of Object.entries(data)) {
+        if (val === null || val === undefined) continue;
+        if (typeof val === 'string') {
+          fields[key] = { stringValue: val };
+        } else if (typeof val === 'number') {
+          fields[key] = Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+        } else if (typeof val === 'boolean') {
+          fields[key] = { booleanValue: val };
+        } else if (typeof val === 'object') {
+          const mapFields: Record<string, any> = {};
+          for (const [subKey, subVal] of Object.entries(val)) {
+            if (typeof subVal === 'string') {
+              mapFields[subKey] = { stringValue: subVal };
+            } else if (typeof subVal === 'number') {
+              mapFields[subKey] = Number.isInteger(subVal) ? { integerValue: String(subVal) } : { doubleValue: subVal };
+            } else if (typeof subVal === 'boolean') {
+              mapFields[subKey] = { booleanValue: subVal };
+            } else {
+              mapFields[subKey] = { stringValue: JSON.stringify(subVal) };
+            }
+          }
+          fields[key] = { mapValue: { fields: mapFields } };
+        }
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ fields }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`[writeFirestoreDocumentRest] Notice (${collectionName}/${documentId}):`, errText);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn(`[writeFirestoreDocumentRest] Request error (${collectionName}/${documentId}):`, err?.message || err);
+      return false;
+    }
+  }
+
   // Dedicated server-side logger to persistent Firestore 'error_logs' collection
   async function logServerErrorToFirestore(params: {
     errorType: string;
@@ -803,8 +864,7 @@ async function startServer() {
   }) {
     try {
       const logId = `err_srv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      const db = getAdminDb();
-      await db.collection('error_logs').doc(logId).set({
+      const logRecord: Record<string, any> = {
         id: logId,
         errorType: params.errorType,
         message: params.message.substring(0, 2000),
@@ -815,8 +875,27 @@ async function startServer() {
         context: params.context || null,
         stack: params.stack ? params.stack.substring(0, 4500) : null,
         createdAt: new Date().toISOString(),
-      });
-      console.log(`[ErrorLog] Recorded server error log in Firestore: ${logId}`);
+      };
+
+      // Primary: Write via Firestore REST API with the Web API Key
+      const written = await writeFirestoreDocumentRest('error_logs', logId, logRecord);
+      if (written) {
+        console.log(`[ErrorLog] Recorded server error log in Firestore: ${logId}`);
+        return logId;
+      }
+
+      // Secondary fallback: Admin SDK if service account is provisioned
+      if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim()) {
+        try {
+          const db = getAdminDb();
+          await db.collection('error_logs').doc(logId).set(logRecord);
+          console.log(`[ErrorLog] Recorded server error log via Admin SDK: ${logId}`);
+          return logId;
+        } catch {
+          // Ignore
+        }
+      }
+
       return logId;
     } catch (err) {
       console.warn('[logServerErrorToFirestore] Notice recording error log:', err);
@@ -870,12 +949,26 @@ async function startServer() {
       if (verifiedEmail) logRecord.userEmail = verifiedEmail.substring(0, 256);
       if (context && typeof context === 'object') logRecord.context = context;
 
-      try {
-        const db = getAdminDb();
-        await db.collection('error_logs').doc(logId).set(logRecord);
-        console.log(`[ErrorLog] Recorded error log ${logId} in Firestore via Admin SDK (${logRecord.errorType})`);
-      } catch (dbErr) {
-        console.warn(`[ErrorLog] Could not write error log to Firestore via Admin SDK:`, dbErr);
+      const authHeader = req.headers.authorization;
+      const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1]?.trim() : undefined;
+
+      // Primary: write directly to Firestore REST API with the Web API Key
+      const written = await writeFirestoreDocumentRest('error_logs', logId, logRecord, token);
+      if (written) {
+        console.log(`[ErrorLog] Recorded error log ${logId} in Firestore (${logRecord.errorType})`);
+        return res.json({ success: true, logId });
+      }
+
+      // Secondary fallback: Admin SDK only if service account credentials are explicitly supplied
+      if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim()) {
+        try {
+          const db = getAdminDb();
+          await db.collection('error_logs').doc(logId).set(logRecord);
+          console.log(`[ErrorLog] Recorded error log ${logId} in Firestore via Admin SDK (${logRecord.errorType})`);
+          return res.json({ success: true, logId });
+        } catch (dbErr: any) {
+          console.warn(`[ErrorLog] Admin SDK fallback notice:`, dbErr?.message || dbErr);
+        }
       }
 
       return res.json({ success: true, logId });
