@@ -656,7 +656,17 @@ async function sendResendEmail(resend: any, params: {
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+  // In AI Studio / Google Cloud Run containers with the built-in Nginx proxy:
+  // Nginx binds to port 8080 (NGINX_PORT) and forwards traffic to DEFAULT_APP_PORT (3000).
+  // Binding this Node app to 8080 causes "Error: listen EADDRINUSE: address already in use 0.0.0.0:8080",
+  // which causes "Failed to update Cloud Run service".
+  const portArgIndex = process.argv.indexOf('--port');
+  const portFromArg = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt(process.argv[portArgIndex + 1], 10) : null;
+  const PORT = portFromArg
+    || (process.env.DEFAULT_APP_PORT ? parseInt(process.env.DEFAULT_APP_PORT, 10) : null)
+    || (process.env.NGINX_PORT ? 3000 : null)
+    || (process.env.PORT && process.env.PORT !== '8080' ? parseInt(process.env.PORT, 10) : 3000);
 
   // Security: Disable X-Powered-By header to prevent server technology fingerprinting
   app.disable('x-powered-by');
