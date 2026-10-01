@@ -59,7 +59,43 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.props.isGlobal) {
       this.unhandledRejectionHandler = (event: PromiseRejectionEvent) => {
         const reason = event.reason;
-        console.warn('[GlobalErrorBoundary] Unhandled promise rejection caught:', reason);
+        if (!reason || reason === 'undefined') return;
+
+        const rawMsg = reason instanceof Error ? (reason.stack || reason.message) : String(reason || '');
+        const lower = rawMsg.toLowerCase();
+
+        // 1. Ignore third-party browser extensions
+        if (lower.includes('chrome-extension://') || lower.includes('moz-extension://') || lower.includes('safari-extension://')) {
+          return;
+        }
+
+        // 2. Ignore aborted network requests / manual navigation cancellations
+        if (
+          lower.includes('aborterror') ||
+          lower.includes('signal is aborted') ||
+          lower.includes('aborted without reason') ||
+          lower.includes('canceled') ||
+          lower.includes('cancelled')
+        ) {
+          return;
+        }
+
+        // 3. Ignore ResizeObserver & rendering engine loop notices
+        if (lower.includes('resizeobserver') || lower.includes('animationframe')) {
+          return;
+        }
+
+        // 4. Ignore dev server websocket & HMR reconnections
+        if (lower.includes('websocket') || lower.includes('vite:ws') || lower.includes('hmr')) {
+          return;
+        }
+
+        // 5. Ignore adblockers blocking external tracking or analytics
+        if (lower.includes('google-analytics') || lower.includes('gtag') || lower.includes('react-ga')) {
+          return;
+        }
+
+        console.warn('[GlobalErrorBoundary] Unhandled promise rejection:', reason);
 
         const isApi = reason instanceof ApiError || (reason && typeof reason === 'object' && 'isApiError' in reason);
         const message = reason instanceof Error ? reason.message : String(reason);
@@ -79,6 +115,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       };
 
       this.windowErrorHandler = (event: ErrorEvent) => {
+        const rawMsg = event.message || '';
+        const lower = rawMsg.toLowerCase();
+
+        // Filter out benign browser script / extension errors
+        if (
+          lower.includes('resizeobserver') ||
+          lower.includes('script error') ||
+          (event.filename && (event.filename.includes('extension://') || event.filename.includes('chrome-extension')))
+        ) {
+          return;
+        }
+
         console.warn('[GlobalErrorBoundary] Uncaught window error:', event.message);
 
         logErrorToFirestore({

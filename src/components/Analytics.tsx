@@ -9,17 +9,25 @@ const Analytics = () => {
 
   useEffect(() => {
     if (GA_TRACKING_ID) {
-      ReactGA.initialize(GA_TRACKING_ID);
+      try {
+        ReactGA.initialize(GA_TRACKING_ID);
+      } catch {
+        // Analytics blocked or unavailable
+      }
     }
   }, []);
 
   useEffect(() => {
     if (GA_TRACKING_ID) {
-      ReactGA.send({
-        hitType: 'pageview',
-        page: location.pathname + location.search,
-        title: document.title,
-      });
+      try {
+        ReactGA.send({
+          hitType: 'pageview',
+          page: location.pathname + location.search,
+          title: document.title,
+        });
+      } catch {
+        // Analytics blocked or unavailable
+      }
     }
   }, [location]);
 

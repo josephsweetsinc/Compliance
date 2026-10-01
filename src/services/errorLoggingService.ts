@@ -129,10 +129,7 @@ export async function logErrorToFirestore(params: LogErrorParams): Promise<strin
   };
 
   // Log locally in development for debugging
-  console.warn(`[ComplyZzz ErrorLog ${logId}] [${errorType}] ${apiEndpoint || ''} ${message}`, {
-    status,
-    record: errorRecord,
-  });
+  console.debug(`[Diagnostics] [${errorType}] ${apiEndpoint || ''} ${message}`);
 
   // Attempt 1: Direct Client Firestore write
   try {
@@ -140,10 +137,10 @@ export async function logErrorToFirestore(params: LogErrorParams): Promise<strin
     await setDoc(logDocRef, errorRecord);
     return logId;
   } catch (firestoreErr: any) {
-    console.warn('[ErrorLogger] Direct Firestore write notice, dispatching to server fallback:', firestoreErr?.message || firestoreErr);
+    // If client lacks direct permission or is offline, try the server fallback endpoint
   }
 
-  // Attempt 2: Server-side proxy fallback (/api/log-error) using Firebase Admin
+  // Attempt 2: Server-side proxy fallback (/api/log-error)
   try {
     const idToken = await currentUser?.getIdToken().catch(() => null);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -155,8 +152,8 @@ export async function logErrorToFirestore(params: LogErrorParams): Promise<strin
       body: JSON.stringify(errorRecord),
     });
     return logId;
-  } catch (fallbackErr) {
-    console.error('[ErrorLogger] Server fallback error logging also failed:', fallbackErr);
+  } catch {
+    // Non-blocking diagnostic fallback
   }
 
   return logId;

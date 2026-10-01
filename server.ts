@@ -880,7 +880,7 @@ async function startServer() {
       // Primary: Write via Firestore REST API with the Web API Key
       const written = await writeFirestoreDocumentRest('error_logs', logId, logRecord);
       if (written) {
-        console.log(`[ErrorLog] Recorded server error log in Firestore: ${logId}`);
+        console.log(`[Diagnostics] Stored diagnostic record in Firestore: ${logId}`);
         return logId;
       }
 
@@ -889,7 +889,7 @@ async function startServer() {
         try {
           const db = getAdminDb();
           await db.collection('error_logs').doc(logId).set(logRecord);
-          console.log(`[ErrorLog] Recorded server error log via Admin SDK: ${logId}`);
+          console.log(`[Diagnostics] Stored diagnostic record via Admin SDK: ${logId}`);
           return logId;
         } catch {
           // Ignore
@@ -898,7 +898,7 @@ async function startServer() {
 
       return logId;
     } catch (err) {
-      console.warn('[logServerErrorToFirestore] Notice recording error log:', err);
+      console.warn('[logServerErrorToFirestore] Notice recording diagnostic:', err);
       return null;
     }
   }
@@ -955,7 +955,7 @@ async function startServer() {
       // Primary: write directly to Firestore REST API with the Web API Key
       const written = await writeFirestoreDocumentRest('error_logs', logId, logRecord, token);
       if (written) {
-        console.log(`[ErrorLog] Recorded error log ${logId} in Firestore (${logRecord.errorType})`);
+        console.log(`[Diagnostics] Stored client diagnostic record ${logId} (${logRecord.errorType})`);
         return res.json({ success: true, logId });
       }
 
@@ -964,17 +964,17 @@ async function startServer() {
         try {
           const db = getAdminDb();
           await db.collection('error_logs').doc(logId).set(logRecord);
-          console.log(`[ErrorLog] Recorded error log ${logId} in Firestore via Admin SDK (${logRecord.errorType})`);
+          console.log(`[Diagnostics] Stored client diagnostic record ${logId} via Admin SDK (${logRecord.errorType})`);
           return res.json({ success: true, logId });
         } catch (dbErr: any) {
-          console.warn(`[ErrorLog] Admin SDK fallback notice:`, dbErr?.message || dbErr);
+          console.warn(`[Diagnostics] Admin SDK fallback notice:`, dbErr?.message || dbErr);
         }
       }
 
       return res.json({ success: true, logId });
     } catch (err: any) {
-      console.error("[ErrorLog] Failed to process error log:", err);
-      return res.status(500).json({ error: "Failed to record error log." });
+      console.warn("[Diagnostics] Unable to process diagnostic record:", err?.message || err);
+      return res.status(500).json({ error: "Failed to record diagnostic." });
     }
   });
 
