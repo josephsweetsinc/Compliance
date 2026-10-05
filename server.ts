@@ -1919,6 +1919,209 @@ ${safeText}
     }
   });
 
+  // =========================================================================
+  // Super Admin Endpoints (Strictly restricted to josephsweetsinc@gmail.com)
+  // =========================================================================
+  const SUPER_ADMIN_EMAIL = 'josephsweetsinc@gmail.com';
+
+  const checkIsSuperAdmin = (req: any): boolean => {
+    const email = (req.userEmail || '')?.toLowerCase()?.trim();
+    return Boolean(email && email === SUPER_ADMIN_EMAIL.toLowerCase());
+  };
+
+  // GET /api/admin/users - Returns list of all users, credits, plan stats, and report counts
+  app.get("/api/admin/users", requireAuth, async (req: any, res) => {
+    try {
+      if (!checkIsSuperAdmin(req)) {
+        return res.status(403).json({ error: "Forbidden", message: "Restricted to Super Admin (josephsweetsinc@gmail.com) only." });
+      }
+
+      const db = getAdminDb();
+      const authAdmin = getAdminAuth(getAdminApp());
+
+      // 1. Fetch all Firestore user docs
+      const usersSnap = await db.collection('users').get();
+      const firestoreUsersMap = new Map<string, any>();
+      usersSnap.forEach(docSnap => {
+        firestoreUsersMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+      });
+
+      // 2. Fetch Firebase Auth users to ensure zero orphans
+      let authUsers: any[] = [];
+      try {
+        const listUsersResult = await authAdmin.listUsers(1000);
+        authUsers = listUsersResult.users;
+      } catch (authErr: any) {
+        console.warn('[Admin API] Failed to list auth users:', authErr.message);
+      }
+
+      // 3. Count reports per user
+      const reportCountsMap = new Map<string, number>();
+      try {
+        const reportsSnap = await db.collection('reports').get();
+        reportsSnap.forEach(rSnap => {
+          const rData = rSnap.data();
+          const clinicId = rData.clinicId || rData.userId;
+          if (clinicId) {
+            reportCountsMap.set(clinicId, (reportCountsMap.get(clinicId) || 0) + 1);
+          }
+        });
+      } catch (repErr: any) {
+        console.warn('[Admin API] Failed to aggregate reports:', repErr.message);
+      }
+
+      // Merge auth users and firestore users
+      const allUserIds = new Set<string>([
+        ...Array.from(firestoreUsersMap.keys()),
+        ...authUsers.map(u => u.uid)
+      ]);
+
+      const combinedUsers = Array.from(allUserIds).map(uid => {
+        const fsData = firestoreUsersMap.get(uid) || {};
+        const authData = authUsers.find(u => u.uid === uid);
+
+        const email = fsData.email || authData?.email || 'No email';
+        const displayName = fsData.displayName || authData?.displayName || '';
+        const clinicName = fsData.clinicName || 'Not Set';
+        const createdAt = fsData.createdAt || (authData?.metadata?.creationTime ? new Date(authData.metadata.creationTime).toISOString() : new Date().toISOString());
+        const lastSignIn = authData?.metadata?.lastSignInTime || null;
+        const reportCredits = typeof fsData.reportCredits === 'number' ? fsData.reportCredits : 0;
+        const subscriptionPlan = fsData.subscriptionPlan || 'free';
+        const subscriptionStatus = fsData.subscriptionStatus || 'inactive';
+        const reportsCount = reportCountsMap.get(uid) || 0;
+        const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+
+        return {
+          uid,
+          email,
+          displayName,
+          clinicName,
+          createdAt,
+          lastSignIn,
+          reportCredits,
+          subscriptionPlan,
+          subscriptionStatus,
+          reportsCount,
+          isSuperAdmin,
+          stripeCustomerId: fsData.stripeCustomerId || null,
+          stripeSubscriptionId: fsData.stripeSubscriptionId || null,
+        };
+      });
+
+      // Sort by creation date descending
+      combinedUsers.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Overall stats
+      const stats = {
+        totalUsers: combinedUsers.length,
+        activeSubscriptions: combinedUsers.filter(u => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
+        totalCredits: combinedUsers.reduce((sum, u) => sum + (u.reportCredits || 0), 0),
+        totalReports: Array.from(reportCountsMap.values()).reduce((sum, count) => sum + count, 0),
+      };
+
+      res.json({ users: combinedUsers, stats });
+    } catch (err: any) {
+      console.error('[Admin API] Error listing users:', err);
+      res.status(500).json({ error: err.message || 'Failed to list users.' });
+    }
+  });
+
+  // POST /api/admin/users/:uid/credits - Adjust credits or plan
+  app.post("/api/admin/users/:uid/credits", requireAuth, async (req: any, res) => {
+    try {
+      if (!checkIsSuperAdmin(req)) {
+        return res.status(403).json({ error: "Forbidden", message: "Restricted to Super Admin (josephsweetsinc@gmail.com) only." });
+      }
+
+      const targetUid = req.params.uid;
+      const { reportCredits, subscriptionPlan, subscriptionStatus } = req.body;
+
+      if (typeof reportCredits !== 'number' && !subscriptionPlan && !subscriptionStatus) {
+        return res.status(400).json({ error: "Bad Request", message: "No valid update fields provided." });
+      }
+
+      const db = getAdminDb();
+      const userRef = db.collection('users').doc(targetUid);
+      const userSnap = await userRef.get();
+
+      if (!userSnap.exists) {
+        return res.status(404).json({ error: "Not Found", message: `User ${targetUid} profile not found in database.` });
+      }
+
+      const updateData: Record<string, any> = {};
+      if (typeof reportCredits === 'number') {
+        updateData.reportCredits = Math.max(0, Math.floor(reportCredits));
+      }
+      if (subscriptionPlan) {
+        updateData.subscriptionPlan = subscriptionPlan;
+      }
+      if (subscriptionStatus) {
+        updateData.subscriptionStatus = subscriptionStatus;
+      }
+
+      await userRef.update(updateData);
+      const updatedSnap = await userRef.get();
+
+      res.json({ success: true, user: { id: updatedSnap.id, ...updatedSnap.data() } });
+    } catch (err: any) {
+      console.error('[Admin API] Error updating credits/plan:', err);
+      res.status(500).json({ error: err.message || 'Failed to update user.' });
+    }
+  });
+
+  // DELETE /api/admin/users/:uid - Permanently deletes user, their Firestore profile, reports, and Firebase Auth account
+  app.delete("/api/admin/users/:uid", requireAuth, async (req: any, res) => {
+    try {
+      if (!checkIsSuperAdmin(req)) {
+        return res.status(403).json({ error: "Forbidden", message: "Restricted to Super Admin (josephsweetsinc@gmail.com) only." });
+      }
+
+      const targetUid = req.params.uid;
+      const db = getAdminDb();
+      const authAdmin = getAdminAuth(getAdminApp());
+
+      // Safety: Prevent deleting the Super Admin!
+      if (targetUid === req.uid) {
+        return res.status(400).json({ error: "Bad Request", message: "Cannot delete the super administrator account." });
+      }
+
+      // Check if target user is super admin by email
+      const userDoc = await db.collection('users').doc(targetUid).get();
+      if (userDoc.exists) {
+        const uEmail = userDoc.data()?.email?.toLowerCase();
+        if (uEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
+          return res.status(400).json({ error: "Bad Request", message: "Cannot delete the super administrator account." });
+        }
+      }
+
+      // 1. Delete all reports created by this user
+      const reportsSnap = await db.collection('reports').where('clinicId', '==', targetUid).get();
+      const batch = db.batch();
+      reportsSnap.forEach(rDoc => {
+        batch.delete(rDoc.ref);
+      });
+      await batch.commit();
+
+      // 2. Delete Firestore user document
+      await db.collection('users').doc(targetUid).delete();
+
+      // 3. Delete from Firebase Authentication
+      try {
+        await authAdmin.deleteUser(targetUid);
+      } catch (authErr: any) {
+        console.warn(`[Admin API] User ${targetUid} not found in Firebase Auth or failed to delete from Auth:`, authErr.message);
+      }
+
+      res.json({
+        success: true,
+        message: `User ${targetUid} and ${reportsSnap.size} associated compliance report(s) deleted permanently.`
+      });
+    } catch (err: any) {
+      console.error('[Admin API] Error deleting user:', err);
+      res.status(500).json({ error: err.message || 'Failed to delete user.' });
+    }
+  });
+
   app.post(["/api/billing/webhook", "/api/stripe/webhook"], async (req: any, res) => {
     const stripe = getStripe();
     const sig = req.headers['stripe-signature'];

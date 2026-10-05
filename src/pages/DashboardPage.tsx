@@ -70,13 +70,24 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Welcome back, {profile.displayName || 'Operator'}</p>
         </div>
-        <Link
-          to="/dashboard/upload"
-          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl transition-all shadow-md shadow-blue-500/20 cursor-pointer min-h-[44px]"
-        >
-          <FileUp size={20} />
-          <span>Upload New Report</span>
-        </Link>
+        <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
+          {profile.email?.toLowerCase().trim() === 'josephsweetsinc@gmail.com' && (
+            <Link
+              to="/dashboard/admin"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-5 rounded-xl transition-all shadow-md shadow-purple-600/20 cursor-pointer min-h-[44px]"
+            >
+              <ShieldCheck size={18} />
+              <span>Admin Panel</span>
+            </Link>
+          )}
+          <Link
+            to="/dashboard/upload"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl transition-all shadow-md shadow-blue-500/20 cursor-pointer min-h-[44px]"
+          >
+            <FileUp size={20} />
+            <span>Upload New Report</span>
+          </Link>
+        </div>
       </header>
 
       {/* Stats Grid */}

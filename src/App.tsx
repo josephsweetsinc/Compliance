@@ -5,7 +5,7 @@ import { auth, logout } from './lib/firebase';
 import { UserProfile } from './types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, Menu, X, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, Menu, X, ChevronRight, ShieldCheck } from 'lucide-react';
 import { ThemeToggle } from './components/ThemeToggle';
 
 // Pages
@@ -17,6 +17,7 @@ import ResultPage from './pages/ResultPage';
 import HistoryPage from './pages/HistoryPage';
 import HelpPage from './pages/HelpPage';
 import BillingPage from './pages/BillingPage';
+import AdminPage from './pages/AdminPage';
 import Analytics from './components/Analytics';
 import { BrandLogo } from './components/BrandLogo';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -135,6 +136,7 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
     return <ProfileSetup user={user} setProfile={setProfile} />;
   }
 
+  const isSuperAdmin = (user?.email || profile?.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
   const isUnlimited = profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active';
   const credits = profile.reportCredits ?? 0;
 
@@ -269,6 +271,20 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
                 active={location.pathname === '/dashboard/help'}
                 onClick={() => setMobileDrawerOpen(false)}
               />
+              {isSuperAdmin && (
+                <MobileDrawerLink 
+                  to="/dashboard/admin" 
+                  icon={<ShieldCheck size={20} className="text-purple-600 dark:text-purple-400" />} 
+                  label="Admin Panel" 
+                  active={location.pathname === '/dashboard/admin'}
+                  onClick={() => setMobileDrawerOpen(false)}
+                  badge={
+                    <span className="text-[10px] font-extrabold bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      Admin
+                    </span>
+                  }
+                />
+              )}
             </nav>
 
             {/* Drawer Footer */}
@@ -318,6 +334,18 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
             }
           />
           <SidebarLink to="/dashboard/help" icon={<HelpCircle size={20} />} label="Help & FAQ" />
+          {isSuperAdmin && (
+            <SidebarLink 
+              to="/dashboard/admin" 
+              icon={<ShieldCheck size={20} className="text-purple-600 dark:text-purple-400" />} 
+              label="Admin Panel"
+              badge={
+                <span className="text-[10px] font-extrabold bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Admin
+                </span>
+              }
+            />
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-100 dark:border-slate-800/60">
@@ -353,6 +381,7 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
               <Route path="/report/:id" element={<ResultPage profile={profile} setProfile={setProfile} />} />
               <Route path="/history" element={<HistoryPage profile={profile} />} />
               <Route path="/billing" element={<BillingPage profile={profile} setProfile={setProfile} />} />
+              <Route path="/admin" element={isSuperAdmin ? <AdminPage profile={profile} /> : <Navigate to="/dashboard" />} />
               <Route path="/help" element={<HelpPage />} />
               <Route path="*" element={<Navigate to="/dashboard" />} />
             </Routes>
