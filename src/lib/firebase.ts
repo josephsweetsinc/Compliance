@@ -3,6 +3,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -76,8 +78,23 @@ export const loginWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'auth/popup-blocked') {
+      console.warn('Popup blocked by browser, attempting redirect sign-in fallback...');
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
     console.error('Google login error:', error);
+    throw error;
+  }
+};
+
+export const checkRedirectLoginResult = async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    return result?.user || null;
+  } catch (error) {
+    console.error('Redirect login error:', error);
     throw error;
   }
 };

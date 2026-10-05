@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { loginWithGoogle, loginWithEmail, registerWithEmail, resetPassword } from '../lib/firebase';
+import { loginWithGoogle, checkRedirectLoginResult, loginWithEmail, registerWithEmail, resetPassword } from '../lib/firebase';
 import { Mail, Lock, User, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff, KeyRound, Sparkles, ArrowLeft, Loader2 } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { BrandLogo } from '../components/BrandLogo';
@@ -27,19 +27,37 @@ export default function LoginPage() {
     if (searchParams.get('mode') === 'signup') {
       setMode('signup');
     }
-  }, [searchParams]);
+
+    // Handle return from Google sign-in redirect flow (e.g. mobile or popup-blocked browsers)
+    checkRedirectLoginResult().then((user) => {
+      if (user) {
+        navigate('/dashboard');
+      }
+    }).catch((err: any) => {
+      console.warn('Redirect sign-in check:', err);
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setError(err.message || 'Google sign-in failed');
+      }
+    });
+  }, [searchParams, navigate]);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     setError(null);
     try {
-      await loginWithGoogle();
+      const user = await loginWithGoogle();
+      if (!user) {
+        // Redirect flow was initiated because the browser blocked the popup
+        setSuccessMessage('Redirecting to Google secure sign-in...');
+      }
       // Auth state listener in App.tsx will navigate to /dashboard
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
         const rawMsg = (err.message || '').toLowerCase();
         if (rawMsg.includes('consumer_suspended') || rawMsg.includes('has been suspended')) {
           setError('Google Cloud project is suspended. Please check Google Cloud Console.');
+        } else if (err.code === 'auth/popup-blocked') {
+          setError('Your browser blocked the sign-in popup. Redirecting you to Google, or sign in below with your email & password.');
         } else {
           setError(err.message || 'Failed to sign in with Google');
         }
