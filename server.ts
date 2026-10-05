@@ -663,12 +663,11 @@ async function startServer() {
   // which causes "Failed to update Cloud Run service".
   const portArgIndex = process.argv.indexOf('--port');
   const portFromArg = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt(process.argv[portArgIndex + 1], 10) : null;
-  // In AI Studio (both dev and published environments), Nginx reverse proxy binds to port 8080.
-  // The Node application must ALWAYS listen on port 3000.
-  // Binding to 8080 causes an immediate EADDRINUSE collision with Nginx, which causes "Failed to update Cloud Run service".
+  // If running in an environment with DEFAULT_APP_PORT (like AI Studio dev proxy), bind to that port (3000).
+  // In standalone Cloud Run / Docker containers where Cloud Run provides PORT (e.g. 8080), bind directly to PORT.
   const PORT = portFromArg
     || (process.env.DEFAULT_APP_PORT ? parseInt(process.env.DEFAULT_APP_PORT, 10) : null)
-    || (process.env.PORT && process.env.PORT !== '8080' ? parseInt(process.env.PORT, 10) : 3000);
+    || (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
   // Security: Disable X-Powered-By header to prevent server technology fingerprinting
   app.disable('x-powered-by');

@@ -20,7 +20,7 @@ FROM node:22-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=8080
 
 # Install production dependencies only
 COPY package*.json ./
@@ -33,7 +33,6 @@ COPY --from=builder /app/firebase-applet-config.json ./firebase-applet-config.js
 COPY --from=builder /app/index.html ./index.html
 COPY --from=builder /app/package.json ./package.json
 
-EXPOSE 3000
+EXPOSE 8080
 
-# Support both 'node server.ts' and 'node dist/server.cjs'
 CMD ["node", "server.ts"]
