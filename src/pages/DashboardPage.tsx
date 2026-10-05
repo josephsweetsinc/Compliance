@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { Link } from 'react-router-dom';
 import { FileUp, History, CheckCircle, XCircle, Clock, ChevronRight, Mail, Settings, ShieldCheck, Loader2, CreditCard, Coins, Building2, Zap } from 'lucide-react';
