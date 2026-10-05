@@ -136,7 +136,7 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
     return <ProfileSetup user={user} setProfile={setProfile} />;
   }
 
-  const isSuperAdmin = (user?.email || profile?.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
+  const isSuperAdmin = (auth.currentUser?.email || user?.email || profile?.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
   const isUnlimited = profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active';
   const credits = profile.reportCredits ?? 0;
 
@@ -420,6 +420,14 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
           label="Plans"
           active={location.pathname === '/dashboard/billing'}
         />
+        {isSuperAdmin && (
+          <MobileBottomItem
+            to="/dashboard/admin"
+            icon={<ShieldCheck size={20} className="text-purple-600 dark:text-purple-400" />}
+            label="Admin"
+            active={location.pathname === '/dashboard/admin'}
+          />
+        )}
         <button
           type="button"
           onClick={() => setMobileDrawerOpen(true)}

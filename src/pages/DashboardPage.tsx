@@ -63,6 +63,8 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
     nonCompliant: recentReports.filter(r => r.status === 'Non-Compliant').length,
   };
 
+  const isSuperAdmin = (auth.currentUser?.email || profile.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -71,7 +73,7 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Welcome back, {profile.displayName || 'Operator'}</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
-          {profile.email?.toLowerCase().trim() === 'josephsweetsinc@gmail.com' && (
+          {isSuperAdmin && (
             <Link
               to="/dashboard/admin"
               className="w-full sm:w-auto flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-5 rounded-xl transition-all shadow-md shadow-purple-600/20 cursor-pointer min-h-[44px]"
@@ -89,6 +91,33 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
           </Link>
         </div>
       </header>
+
+      {/* Super Admin Access Banner */}
+      {isSuperAdmin && (
+        <div className="bg-gradient-to-r from-purple-900 via-indigo-950 to-purple-900 text-white p-4 sm:p-5 rounded-2xl border border-purple-500/40 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-purple-500/20 border border-purple-400/40 flex items-center justify-center text-purple-300 shrink-0">
+              <ShieldCheck size={24} />
+            </div>
+            <div>
+              <p className="font-extrabold text-sm sm:text-base text-white flex items-center gap-2">
+                <span>Super Administrator Access</span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold uppercase">Active</span>
+              </p>
+              <p className="text-xs text-purple-200/90 mt-0.5">
+                Logged in as <strong>{auth.currentUser?.email || profile.email}</strong>. You have full access to manage all users, credits, and reports.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/dashboard/admin"
+            className="w-full sm:w-auto px-4 py-2.5 bg-white text-purple-900 hover:bg-purple-50 active:scale-95 text-xs font-black rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 shrink-0"
+          >
+            <span>Open User Management</span>
+            <ChevronRight size={14} />
+          </Link>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
