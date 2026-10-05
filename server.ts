@@ -663,14 +663,12 @@ async function startServer() {
   // which causes "Failed to update Cloud Run service".
   const portArgIndex = process.argv.indexOf('--port');
   const portFromArg = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? parseInt(process.argv[portArgIndex + 1], 10) : null;
-  // Port resolution:
-  // 1. Explicit CLI argument (--port 3000)
-  // 2. AI Studio dev sandbox environment variables: NGINX listens on 8080 (NGINX_PORT) and proxies to 3000 (DEFAULT_APP_PORT).
-  // 3. Production Cloud Run container: Cloud Run sets PORT (usually 8080) and expects the container to listen directly on that port.
+  // In AI Studio (both dev and published environments), Nginx reverse proxy binds to port 8080.
+  // The Node application must ALWAYS listen on port 3000.
+  // Binding to 8080 causes an immediate EADDRINUSE collision with Nginx, which causes "Failed to update Cloud Run service".
   const PORT = portFromArg
     || (process.env.DEFAULT_APP_PORT ? parseInt(process.env.DEFAULT_APP_PORT, 10) : null)
-    || (process.env.NGINX_PORT ? 3000 : null)
-    || (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
+    || (process.env.PORT && process.env.PORT !== '8080' ? parseInt(process.env.PORT, 10) : 3000);
 
   // Security: Disable X-Powered-By header to prevent server technology fingerprinting
   app.disable('x-powered-by');
