@@ -2,11 +2,13 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Copy package descriptors
 COPY package*.json ./
-RUN npm ci
 
-# Copy source and build
+# Install dependencies (use npm install so lockfile differences never break the build)
+RUN npm install
+
+# Copy source and build production bundle
 COPY . .
 RUN npm run build
 
@@ -19,7 +21,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/firebase-applet-config.json ./
