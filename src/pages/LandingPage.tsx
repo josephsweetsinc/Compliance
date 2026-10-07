@@ -40,6 +40,7 @@ import {
   X,
   BadgePercent,
   Play,
+  Camera,
   RotateCcw
 } from 'lucide-react';
 
@@ -273,6 +274,10 @@ export default function LandingPage() {
               <Plane size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>FAA 14 CFR Part 67 Sleep Rubrics</span>
             </div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/80 rounded-full text-purple-700 dark:text-purple-300 text-[10px] sm:text-xs font-bold uppercase tracking-wider shadow-xs max-w-full text-center">
+              <Camera size={14} className="text-purple-600 dark:text-purple-400 shrink-0" />
+              <span>PDF, PNG, JPG & Smartphone Photos</span>
+            </div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 rounded-full text-emerald-700 dark:text-emerald-300 text-[10px] sm:text-xs font-bold uppercase tracking-wider shadow-xs max-w-full text-center">
               <Zap size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>5-Second Instant Determination</span>
@@ -289,7 +294,7 @@ export default function LandingPage() {
             </h1>
 
             <p className="text-sm sm:text-xl text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed px-1">
-              Never get turned away from your commercial driver medical exam or flight physical. Upload any CPAP sleep report from ResMed, Philips, or Fisher & Paykel and get a certified determination letter in seconds.
+              Never get turned away from your commercial driver medical exam or flight physical. Upload any CPAP sleep report PDF, snap a photo of your machine LCD with your smartphone camera, or upload app screenshots (.png, .jpg, .jpeg) from myAir & DreamMapper for a certified determination letter in seconds.
             </p>
 
             {/* CTA Buttons */}
@@ -466,7 +471,7 @@ export default function LandingPage() {
                 onClick={() => navigate('/login')}
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shrink-0 cursor-pointer min-h-[40px] text-center"
               >
-                Audit Your PDF
+                Audit PDF or Photo
               </button>
             </div>
           </div>
@@ -632,7 +637,7 @@ export default function LandingPage() {
                     Standardize CPAP Audits in 5 Seconds Instead of 15 Minutes
                   </h3>
                   <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-sm sm:text-base">
-                    Eliminate manual date calculations, illegible vendor sleep sheets, and examiner math errors. ComplyZzz ingests any vendor PDF and outputs an audit-proof clinical determination letter.
+                    Eliminate manual date calculations, illegible vendor sleep sheets, and examiner math errors. ComplyZzz ingests any vendor PDF, app screenshot (.png, .jpg, .jpeg), or machine photo and outputs an audit-proof clinical determination letter.
                   </p>
                   <ul className="space-y-3 text-sm text-slate-700 dark:text-slate-300">
                     <li className="flex items-center gap-3">
@@ -764,7 +769,7 @@ export default function LandingPage() {
               Simple 3-Step Flow
             </p>
             <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              From Raw Sleep PDF to Certified Letter
+              From Raw Sleep PDF, Photo, or Screenshot to Certified Letter
             </h2>
             <p className="text-slate-600 dark:text-slate-300 text-base sm:text-lg">
               No manual calculations, no software installations. Everything runs securely in your browser.
@@ -776,9 +781,9 @@ export default function LandingPage() {
               <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-extrabold text-xl flex items-center justify-center">
                 1
               </div>
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Upload Sleep Report</h3>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Upload Sleep Report or Photo</h3>
               <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">
-                Drag and drop your CPAP compliance PDF from ResMed, Philips, or any other vendor export. Multiple file batch uploads supported.
+                Drag and drop your CPAP compliance PDF, snap a photo of your machine LCD screen with your smartphone camera, or upload screenshots (.png, .jpg, .jpeg) from myAir & DreamMapper.
               </p>
             </div>
 
@@ -1006,6 +1011,10 @@ export default function LandingPage() {
                 q: "Which CPAP machine manufacturers are supported?",
                 a: "ComplyZzz supports all major CPAP vendors, including ResMed (AirView, myAir, AirSense 10/11), Philips Respironics (Care Orchestrator, DreamStation 1/2), Fisher & Paykel (SleepStyle), DeVilbiss, Transcend, and Somnetics."
               },
+              {
+                q: "Can I upload a screenshot or smartphone photo instead of a PDF?",
+                a: "Yes! ComplyZzz fully accepts PDF documents as well as .png, .jpg, and .jpeg image files. You can take a live photo of your CPAP machine's screen with your smartphone camera, or upload screenshots from mobile apps like ResMed myAir, Philips DreamMapper, or Care Orchestrator. Our AI Vision engine reads the numbers directly from the photo to generate your official DOT letter."
+              },
             ].map((faq, idx) => {
               const isOpen = openFaqIndex === idx;
               return (
@@ -1046,7 +1055,7 @@ export default function LandingPage() {
           </h2>
 
           <p className="text-slate-300 text-sm sm:text-lg max-w-2xl mx-auto leading-relaxed px-2">
-            Upload your sleep PDF now and receive an official certified determination letter in 5 seconds. Avoid costly medical holds and get certified without stress.
+            Upload your sleep PDF, mobile app screenshot (.png, .jpg, .jpeg), or machine photo now and receive an official certified determination letter in 5 seconds. Avoid costly medical holds and get certified without stress.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-2 sm:pt-4 w-full max-w-md sm:max-w-none mx-auto">

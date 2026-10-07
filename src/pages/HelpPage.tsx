@@ -33,7 +33,12 @@ const faqs: FAQItem[] = [
   {
     category: 'usage',
     question: 'How do I upload a CPAP report?',
-    answer: 'Navigate to the "Upload Report" page. You can drag and drop your PDF report directly into the upload zone or click to browse your files. Once uploaded, you can optionally add driver details like Date of Birth and License Number before processing.'
+    answer: 'Navigate to the "Upload Report" page. You can drag and drop your PDF report, upload image screenshots (.png, .jpg, .jpeg, .webp) from apps like myAir or DreamMapper, or take a live photo of your CPAP machine screen with your smartphone camera. Once uploaded, you can optionally add driver details like Date of Birth and License Number before processing.'
+  },
+  {
+    category: 'usage',
+    question: 'What file formats are accepted?',
+    answer: 'ComplyZzz accepts digital PDF documents (.pdf) as well as all standard image formats (.png, .jpg, .jpeg, .webp). On mobile devices, you can also use your smartphone camera to capture a photo of your CPAP screen or physical printout directly.'
   },
   {
     category: 'usage',
@@ -57,12 +62,12 @@ const faqs: FAQItem[] = [
   {
     category: 'criteria',
     question: 'What does "Indeterminate" status mean?',
-    answer: 'If the AI analysis cannot confidently extract clear usage metrics (due to poor PDF quality or non-standard report formats), it may flag a report as indeterminate. In these cases, we recommend manual review of the original PDF.'
+    answer: 'If the AI analysis cannot confidently extract clear usage metrics (due to poor image resolution or non-standard report formats), it may flag a report as indeterminate. In these cases, we recommend taking a clearer photo or providing the digital PDF export.'
   },
   {
     category: 'troubleshooting',
     question: 'Why did my upload fail?',
-    answer: 'Ensure the file is a valid PDF and not password protected. The system specifically targets reports exported from CPAP compliance software (like ResScan, EncoreAnywhere, or AirView). Scanned copies of paper reports may have lower extraction accuracy.'
+    answer: 'Ensure the file is a valid PDF (.pdf) or clear image (.png, .jpg, .jpeg, .webp). If uploading a photo, ensure there is adequate lighting and that the numbers (usage hours, days, or AHI) are clearly readable without heavy glare.'
   },
   {
     category: 'troubleshooting',
