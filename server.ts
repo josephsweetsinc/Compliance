@@ -683,11 +683,13 @@ async function startServer() {
   // Preserve raw body buffer for Stripe webhook signature verification
   app.use(
     express.json({
+      limit: '25mb',
       verify: (req: any, _res, buf) => {
         req.rawBody = buf;
       },
     })
   );
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // IP-based Rate Limiter Middleware for API endpoints (Max 60 requests / min default)
   const apiRateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -1222,6 +1224,147 @@ ${safeText}
       }
       res.status(422).json({
         error: "Unable to process the document. Please ensure the PDF is a readable CPAP report."
+      });
+    }
+  });
+
+  // Multimodal Gemini Vision endpoint for CPAP compliance extraction from screenshots and photos
+  app.post("/api/extract-metrics-image", extractRateLimiter, async (req, res) => {
+    try {
+      const { base64Data, mimeType, filename } = req.body;
+      if (!base64Data || typeof base64Data !== 'string') {
+        return res.status(400).json({ error: "Missing image data for CPAP compliance analysis." });
+      }
+
+      // Clean base64 string
+      const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
+      if (!cleanBase64) {
+        return res.status(400).json({ error: "Empty image payload provided." });
+      }
+
+      const safeMimeType = (mimeType && typeof mimeType === 'string' && mimeType.startsWith('image/'))
+        ? mimeType
+        : 'image/jpeg';
+
+      const ai = getAI();
+
+      const imagePart = {
+        inlineData: {
+          mimeType: safeMimeType,
+          data: cleanBase64,
+        },
+      };
+
+      const textPart = {
+        text: `You are an expert clinical medical data extraction engine specializing in CPAP compliance reports, sleep apnea therapy logs, and smartphone app screenshots (such as ResMed myAir, Philips DreamMapper, Philips Care Orchestrator, Fisher & Paykel SleepStyle, BMC iCode, Somnics, etc., or photos of CPAP machine screens and paper printouts).
+
+Analyze this image or screenshot of CPAP compliance data. Extract the clinical metrics needed for DOT (FMCSA) and FAA CPAP compliance certification.
+
+Rules:
+* Return ONLY valid JSON matching the schema
+* Do NOT explain anything
+* If patient or driver name is visible, extract it; otherwise return "Commercial Driver"
+* If device model or manufacturer is visible (e.g. "ResMed AirSense 11", "ResMed AirSense 10", "Philips DreamStation 2", "Fisher & Paykel SleepStyle", etc.), extract it; otherwise return "Standard CPAP"
+* total_days: evaluation window period (usually 30, 90, 180, or 365 days; default to 30 if a 30-day view or unknown)
+* days_used_4_plus_hours: count of days/nights machine was used for 4 or more hours (>= 4.0 hrs)
+* usage_days_percent: percentage of days with >= 4 hours usage (e.g. 85 for 85%)
+* average_usage_hours: average hours of use per night (0 to 24)
+* ahi: residual apnea-hypopnea index / events per hour (0 to 200)
+* report_start_date & report_end_date: visible date range (or empty string if not visible)
+* detected_manufacturer: e.g. "ResMed", "Philips", "Fisher & Paykel", or "Generic CPAP"
+* detected_format: e.g. "myAir App Screenshot", "DreamMapper App Screenshot", "CPAP Device Screen Photo", or "Paper Report Photo"
+
+Return schema:
+{
+  "patient_name": "",
+  "device_type": "",
+  "report_start_date": "",
+  "report_end_date": "",
+  "total_days": 30,
+  "days_used_4_plus_hours": 24,
+  "usage_days_percent": 80.0,
+  "average_usage_hours": 5.2,
+  "ahi": 2.4,
+  "detected_manufacturer": "ResMed",
+  "detected_format": "myAir Screenshot"
+}`
+      };
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('AI vision extraction operation timed out')), 20000)
+      );
+
+      const aiPromise = ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: { parts: [imagePart, textPart] },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              patient_name: { type: Type.STRING },
+              device_type: { type: Type.STRING },
+              report_start_date: { type: Type.STRING },
+              report_end_date: { type: Type.STRING },
+              total_days: { type: Type.INTEGER },
+              days_used_4_plus_hours: { type: Type.INTEGER },
+              usage_days_percent: { type: Type.NUMBER },
+              average_usage_hours: { type: Type.NUMBER },
+              ahi: { type: Type.NUMBER },
+              detected_manufacturer: { type: Type.STRING },
+              detected_format: { type: Type.STRING },
+            },
+            required: [
+              "patient_name",
+              "device_type",
+              "report_start_date",
+              "report_end_date",
+              "total_days",
+              "days_used_4_plus_hours",
+              "usage_days_percent",
+              "average_usage_hours",
+              "ahi",
+            ],
+          },
+        },
+      });
+
+      const response: any = await Promise.race([aiPromise, timeoutPromise]);
+      const jsonStr = response.text?.trim();
+      if (!jsonStr) {
+        throw new Error("Empty response received from vision model.");
+      }
+
+      const parsed = JSON.parse(jsonStr);
+      const metrics = sanitizeExtractedMetrics(parsed);
+      if (!metrics) {
+        throw new Error("Unable to parse compliance metrics from the screenshot.");
+      }
+
+      const detectedManufacturer = parsed.detected_manufacturer || 'Generic CPAP';
+      const detectedFormat = parsed.detected_format || 'Photo / Screenshot';
+
+      res.json({
+        metrics,
+        detectedManufacturer,
+        detectedFormat,
+        source: 'gemini_vision'
+      });
+    } catch (visionErr: any) {
+      console.warn("[Gemini Vision Notice]:", visionErr?.message || visionErr);
+      await logServerErrorToFirestore({
+        errorType: 'API_FAILURE',
+        message: `Vision CPAP extraction failed: ${visionErr?.message || 'Vision model error'}`,
+        apiEndpoint: '/api/extract-metrics-image',
+        status: 422,
+        userId: (req as any).uid,
+        userEmail: (req as any).userEmail,
+        context: { filename: req.body?.filename },
+        stack: visionErr?.stack,
+      });
+
+      res.status(422).json({
+        error: "Unable to read CPAP compliance metrics from this photo or screenshot. Please ensure the image clearly shows your usage hours, percent adherence, or AHI numbers."
       });
     }
   });

@@ -5,7 +5,7 @@ import { db, auth } from '../lib/firebase';
 import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { UserProfile, ComplianceMetrics, ComplianceReport } from '../types';
 import { extractTextFromPdf } from '../services/pdfService';
-import { extractComplianceMetrics } from '../services/geminiService';
+import { extractComplianceMetrics, extractComplianceMetricsFromImage } from '../services/geminiService';
 import { parseCpapMetrics } from '../services/cpapParser';
 import { sendSummaryNotificationToUser } from '../services/emailService';
 import { logErrorToFirestore } from '../services/errorLoggingService';
@@ -26,8 +26,19 @@ import {
   CreditCard, 
   Coins, 
   Building2, 
-  ArrowRight 
+  ArrowRight,
+  Camera,
+  Image as ImageIcon,
+  Smartphone
 } from 'lucide-react';
+
+export function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name);
+}
+
+export function isSupportedFile(file: File): boolean {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name) || isImageFile(file);
+}
 
 export default function UploadPage({ 
   profile, 
@@ -130,21 +141,21 @@ export default function UploadPage({
     }));
   };
 
-  const addPdfFiles = useCallback((selectedFiles: File[]) => {
-    const pdfFiles = selectedFiles.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  const addFiles = useCallback((selectedFiles: File[]) => {
+    const validFiles = selectedFiles.filter(isSupportedFile);
     
-    if (pdfFiles.length === 0 && selectedFiles.length > 0) {
-      setError('Please select or drop valid PDF files (.pdf format).');
+    if (validFiles.length === 0 && selectedFiles.length > 0) {
+      setError('Please select or drop valid CPAP reports: PDF documents (.pdf) or clear image screenshots/photos (.png, .jpg, .jpeg, .webp).');
       return;
     }
 
-    if (files.length + pdfFiles.length > 10) {
+    if (files.length + validFiles.length > 10) {
       setError(`Maximum 10 files allowed per batch. You already have ${files.length} file(s) selected.`);
       return;
     }
 
     setFiles(prev => {
-      const newFiles = [...prev, ...pdfFiles];
+      const newFiles = [...prev, ...validFiles];
       setFileResults(prevResults => {
         return newFiles.map((_, idx) => {
           if (idx < prevResults.length) return prevResults[idx];
@@ -159,17 +170,17 @@ export default function UploadPage({
   const onDrop = useCallback((acceptedFiles: File[], fileRejections: FileRejection[]) => {
     if (fileRejections.length > 0) {
       const invalidFiles = fileRejections.map(r => r.file.name).join(', ');
-      setError(`Some files could not be added (${invalidFiles}). Please ensure files are valid .pdf documents.`);
+      setError(`Some files could not be added (${invalidFiles}). Please ensure files are valid .pdf documents or image screenshots (.png, .jpg, .jpeg, .webp).`);
     }
     if (acceptedFiles.length > 0) {
-      addPdfFiles(acceptedFiles);
+      addFiles(acceptedFiles);
     }
-  }, [addPdfFiles]);
+  }, [addFiles]);
 
   const handleLoadSample = (type: 'compliant' | 'non_compliant') => {
     try {
       const sampleFile = generateSampleCpapPdf(type);
-      addPdfFiles([sampleFile]);
+      addFiles([sampleFile]);
     } catch (e: any) {
       setError('Could not generate sample report: ' + (e.message || 'Unknown error'));
     }
@@ -185,7 +196,10 @@ export default function UploadPage({
   } = useDropzone({
     onDrop,
     accept: {
-      'application/pdf': ['.pdf']
+      'application/pdf': ['.pdf'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/webp': ['.webp']
     },
     multiple: true,
     noClick: files.length > 0,
@@ -258,41 +272,71 @@ export default function UploadPage({
 
       try {
         setStep('extracting');
-        const extraction = await extractTextFromPdf(file);
-        
-        if (!extraction.text) {
-          throw new Error('Extraction failed: No text content found in PDF. The document might be an unreadable image or protected.');
-        }
-
-        if (extraction.isLowQuality) {
-          throw new Error(`Low quality text detected. Average words per page: ${Math.round(extraction.wordCount / extraction.pageCount)}. Ensure the PDF is digitally generated.`);
-        }
-
-        const manufacturer = extraction.detectedManufacturer || 'Generic CPAP';
-        const format = extraction.detectedFormat || 'Standard Format';
-        
-        setCurrentExtraction({ manufacturer, format });
-
-        setFileResults(prev => {
-          const updated = [...prev];
-          updated[i] = { 
-            ...updated[i], 
-            manufacturer,
-            format
-          };
-          return updated;
-        });
-
-        setStep('analyzing');
+        let manufacturer = 'Generic CPAP';
+        let format = 'Standard Format';
         let metrics: ComplianceMetrics | null = null;
-        try {
-          metrics = await extractComplianceMetrics(extraction.text);
-        } catch (extractErr: any) {
-          console.warn(`Primary AI extraction notice for ${file.name}, using deterministic engine:`, extractErr.message);
-          metrics = parseCpapMetrics(extraction.text);
-          if (!metrics) {
-            throw extractErr;
+
+        if (isImageFile(file)) {
+          // Multimodal Gemini Vision analysis for screenshots and photos
+          const visionResult = await extractComplianceMetricsFromImage(file);
+          manufacturer = visionResult.detectedManufacturer || 'Generic CPAP';
+          format = visionResult.detectedFormat || 'Photo / App Screenshot';
+
+          setCurrentExtraction({ manufacturer, format });
+
+          setFileResults(prev => {
+            const updated = [...prev];
+            updated[i] = { 
+              ...updated[i], 
+              manufacturer,
+              format
+            };
+            return updated;
+          });
+
+          setStep('analyzing');
+          metrics = visionResult.metrics;
+        } else {
+          // PDF document parsing
+          const extraction = await extractTextFromPdf(file);
+          
+          if (!extraction.text) {
+            throw new Error('Extraction failed: No text content found in PDF. The document might be an unreadable scanned image or password-protected.');
           }
+
+          if (extraction.isLowQuality) {
+            throw new Error(`Low quality text detected. Average words per page: ${Math.round(extraction.wordCount / extraction.pageCount)}. Ensure the PDF is digitally generated or upload a clear photo/screenshot.`);
+          }
+
+          manufacturer = extraction.detectedManufacturer || 'Generic CPAP';
+          format = extraction.detectedFormat || 'Standard Format';
+          
+          setCurrentExtraction({ manufacturer, format });
+
+          setFileResults(prev => {
+            const updated = [...prev];
+            updated[i] = { 
+              ...updated[i], 
+              manufacturer,
+              format
+            };
+            return updated;
+          });
+
+          setStep('analyzing');
+          try {
+            metrics = await extractComplianceMetrics(extraction.text);
+          } catch (extractErr: any) {
+            console.warn(`Primary AI extraction notice for ${file.name}, using deterministic engine:`, extractErr.message);
+            metrics = parseCpapMetrics(extraction.text);
+            if (!metrics) {
+              throw extractErr;
+            }
+          }
+        }
+
+        if (!metrics) {
+          throw new Error('Could not calculate clinical CPAP metrics from this file.');
         }
 
         const status = calculateCompliance(metrics);
@@ -690,6 +734,41 @@ export default function UploadPage({
 
           {files.length === 0 ? (
             <div className="space-y-4">
+              {/* Hidden direct camera input for smartphone photo capture */}
+              <input
+                type="file"
+                id="camera-photo-input"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    addFiles(Array.from(e.target.files));
+                    e.target.value = '';
+                  }
+                }}
+              />
+
+              {/* Mobile Quick Capture Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('camera-photo-input')?.click()}
+                  className="flex items-center justify-center gap-2.5 p-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 active:scale-98 text-white rounded-2xl font-bold text-xs sm:text-sm shadow-md shadow-purple-500/20 transition-all cursor-pointer"
+                >
+                  <Camera size={19} className="shrink-0" />
+                  <span>Take Photo with Camera</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openFileSelector()}
+                  className="flex items-center justify-center gap-2.5 p-3.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50/50 text-slate-800 dark:text-slate-100 active:scale-98 rounded-2xl font-bold text-xs sm:text-sm transition-all cursor-pointer shadow-xs"
+                >
+                  <Smartphone size={19} className="text-blue-600 shrink-0" />
+                  <span>Upload Screenshot or PDF</span>
+                </button>
+              </div>
+
               {/* Multi-File Primary Drop Zone using react-dropzone */}
               <div
                 {...getRootProps()}
@@ -703,43 +782,44 @@ export default function UploadPage({
               >
                 <input {...getInputProps()} />
 
-                <div className={`p-3.5 sm:p-4 rounded-2xl mb-3 sm:mb-4 transition-all duration-300 ${
+                <div className={`p-3.5 sm:p-4 rounded-2xl mb-3 sm:mb-4 transition-all duration-300 flex items-center gap-2 ${
                   isDragReject
                     ? 'bg-rose-600 text-white'
                     : isDragActive 
                     ? 'bg-blue-600 text-white scale-110 shadow-lg animate-bounce' 
                     : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100 group-hover:scale-105'
                 }`}>
-                  <FileUp size={32} className="sm:w-9 sm:h-9" />
+                  <FileUp size={30} className="sm:w-8 sm:h-8" />
+                  <Camera size={26} className="sm:w-7 sm:h-7 opacity-80" />
                 </div>
 
                 <p className={`text-base sm:text-lg font-bold mb-1 text-center transition-colors ${
-                  isDragReject ? 'text-rose-700' : isDragActive ? 'text-blue-700' : 'text-slate-800'
+                  isDragReject ? 'text-rose-700' : isDragActive ? 'text-blue-700' : 'text-slate-800 dark:text-white'
                 }`}>
                   {isDragReject
-                    ? 'Invalid file type (PDF required)'
+                    ? 'Invalid file type (PDF or Image required)'
                     : isDragActive
-                    ? 'Drop CPAP PDF reports to queue'
-                    : 'Tap to Select or Drop CPAP Reports'}
+                    ? 'Drop CPAP PDF or Screenshot to queue'
+                    : 'Tap to Select or Drop CPAP Reports & Photos'}
                 </p>
 
-                <p className="text-slate-500 text-xs sm:text-sm mb-4 text-center max-w-md px-2">
+                <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-4 text-center max-w-md px-2 leading-relaxed">
                   {isDragActive
                     ? 'Release to load documents into your analysis queue'
-                    : 'Upload single or multiple CPAP machine PDF reports for instant automated compliance checking'}
+                    : 'Upload PDF reports, snap a photo of your CPAP screen with your camera, or upload screenshots from myAir, DreamMapper & Care Orchestrator.'}
                 </p>
 
                 <div className="flex flex-wrap items-center justify-center gap-2 px-2 text-center">
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-100/80 border border-blue-200 px-3 py-1.5 rounded-lg">
                     <Sparkles size={13} className="text-blue-600 shrink-0" />
-                    <span>ResMed AirView, Philips Care Orchestrator & DeVilbiss</span>
+                    <span>PDFs & Mobile Screenshots (myAir, DreamMapper, ResMed, Philips)</span>
                   </span>
                 </div>
 
-                <p className="mt-4 sm:mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 border border-slate-100 px-3.5 py-1.5 rounded-xl font-medium select-none">
-                  <span className="text-slate-600">🔒 Secure browser extraction</span>
+                <p className="mt-4 sm:mt-5 text-[11px] text-slate-500 flex flex-wrap items-center justify-center gap-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-3.5 py-1.5 rounded-xl font-medium select-none">
+                  <span className="text-slate-600 dark:text-slate-400">🔒 AI Vision & OCR Extraction</span>
                   <span className="text-slate-300 hidden sm:inline">•</span>
-                  <span className="text-slate-600">Up to 10 files per batch</span>
+                  <span className="text-slate-600 dark:text-slate-400">PDF, JPG, PNG, WEBP supported</span>
                 </p>
               </div>
 
@@ -843,23 +923,34 @@ export default function UploadPage({
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`p-2.5 rounded-xl ${
                           fileResults[i]?.status === 'error' ? 'bg-rose-100 text-rose-600' :
-                          currentFileIndex === i ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
+                          currentFileIndex === i ? 'bg-blue-600 text-white shadow-sm' : 
+                          isImageFile(f) ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' :
+                          'bg-slate-100 text-slate-600'
                         }`}>
                           {currentFileIndex === i && loading ? (
                             <Loader2 className="animate-spin" size={18} />
                           ) : fileResults[i]?.status === 'error' ? (
                             <X size={18} />
+                          ) : isImageFile(f) ? (
+                            <Camera size={18} />
                           ) : (
                             <FileText size={18} />
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-800 truncate text-sm">{f.name}</p>
+                          <p className="font-bold text-slate-800 dark:text-white truncate text-sm">{f.name}</p>
                           <div className="flex items-center gap-2 flex-wrap mt-0.5">
                             <span className="text-[10px] text-slate-500 font-mono">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
-                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">Queue #{i + 1}</span>
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">Queue #{i + 1}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              isImageFile(f)
+                                ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60'
+                                : 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60'
+                            }`}>
+                              {isImageFile(f) ? '📷 Screenshot / Photo' : '📄 PDF Report'}
+                            </span>
                             {fileResults[i]?.manufacturer && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100 uppercase tracking-wider">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800 uppercase tracking-wider">
                                 {fileResults[i].manufacturer} ({fileResults[i].format})
                               </span>
                             )}

@@ -87,3 +87,55 @@ export async function extractComplianceMetrics(text: string): Promise<Compliance
   }
 }
 
+export interface ImageExtractionResult {
+  metrics: ComplianceMetrics;
+  detectedManufacturer?: string;
+  detectedFormat?: string;
+}
+
+export async function extractComplianceMetricsFromImage(file: File): Promise<ImageExtractionResult> {
+  const base64Data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result);
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (auth.currentUser) {
+    const token = await auth.currentUser.getIdToken().catch(() => null);
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  const response = await fetch('/api/extract-metrics-image', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      base64Data,
+      mimeType: file.type || 'image/jpeg',
+      filename: file.name,
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (response.ok && data?.metrics) {
+    return {
+      metrics: data.metrics as ComplianceMetrics,
+      detectedManufacturer: data.detectedManufacturer || 'Generic CPAP',
+      detectedFormat: data.detectedFormat || 'Photo / Screenshot',
+    };
+  }
+
+  const serverMsg = data?.error || `Server returned status ${response.status}`;
+  throw new Error(serverMsg);
+}
+
