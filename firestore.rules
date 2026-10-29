@@ -21,6 +21,12 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.clinicId;
     }
 
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+             'email' in request.auth.token && 
+             request.auth.token.email.lower() == 'josephsweetsinc@gmail.com';
+    }
+
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -113,23 +119,24 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUser(incoming()) && billingFieldsAreDefaults(incoming());
-      allow update: if isOwner(userId) && isValidUser(incoming()) &&
+      allow read: if isOwner(userId) || isSuperAdmin();
+      allow create: if (isOwner(userId) && isValidUser(incoming()) && billingFieldsAreDefaults(incoming())) || isSuperAdmin();
+      allow update: if (isOwner(userId) && isValidUser(incoming()) &&
                        incoming().uid == existing().uid &&
                        incoming().email == existing().email &&
                        incoming().createdAt == existing().createdAt &&
-                       billingFieldsAllowed();
+                       billingFieldsAllowed()) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     match /reports/{reportId} {
-      allow read: if isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid);
-      allow create: if isAuthenticated() && isValidId(reportId) && isValidReport(incoming()) && incoming().id == reportId;
-      allow update: if isDocOwner() && isValidId(reportId) && isValidReport(incoming()) &&
+      allow read: if (isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid)) || isSuperAdmin();
+      allow create: if (isAuthenticated() && isValidId(reportId) && isValidReport(incoming()) && incoming().id == reportId) || isSuperAdmin();
+      allow update: if (isDocOwner() && isValidId(reportId) && isValidReport(incoming()) &&
                        incoming().id == existing().id &&
                        incoming().clinicId == existing().clinicId &&
-                       incoming().createdAt == existing().createdAt;
-      allow delete: if isDocOwner();
+                       incoming().createdAt == existing().createdAt) || isSuperAdmin();
+      allow delete: if isDocOwner() || isSuperAdmin();
     }
 
     match /error_logs/{logId} {

@@ -764,6 +764,7 @@ async function startServer() {
 
     (req as any).uid = decoded.uid;
     (req as any).userEmail = decoded.email;
+    (req as any).rawToken = token;
     next();
   };
 
@@ -2071,6 +2072,122 @@ Return schema:
     return Boolean(email && email === SUPER_ADMIN_EMAIL.toLowerCase());
   };
 
+  function parseFirestoreRestFields(fields: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    if (!fields || typeof fields !== 'object') return result;
+    for (const [key, val] of Object.entries(fields)) {
+      if (val && typeof val === 'object') {
+        if ('stringValue' in val) result[key] = (val as any).stringValue;
+        else if ('integerValue' in val) result[key] = parseInt((val as any).integerValue, 10);
+        else if ('doubleValue' in val) result[key] = parseFloat((val as any).doubleValue);
+        else if ('booleanValue' in val) result[key] = (val as any).booleanValue;
+        else if ('timestampValue' in val) result[key] = (val as any).timestampValue;
+        else if ('nullValue' in val) result[key] = null;
+        else if ('mapValue' in val) result[key] = parseFirestoreRestFields((val as any).mapValue?.fields || {});
+        else if ('arrayValue' in val) {
+          const values = (val as any).arrayValue?.values || [];
+          result[key] = values.map((item: any) => {
+            if (item && typeof item === 'object') {
+              if ('stringValue' in item) return item.stringValue;
+              if ('integerValue' in item) return parseInt(item.integerValue, 10);
+              if ('doubleValue' in item) return parseFloat(item.doubleValue);
+              if ('booleanValue' in item) return item.booleanValue;
+              if ('mapValue' in item) return parseFirestoreRestFields(item.mapValue?.fields || {});
+            }
+            return item;
+          });
+        } else {
+          result[key] = Object.values(val)[0];
+        }
+      } else {
+        result[key] = val;
+      }
+    }
+    return result;
+  }
+
+  async function fetchFirestoreCollectionRest(collectionName: string, rawToken?: string): Promise<any[]> {
+    const projectId = firebaseAppletConfig.projectId;
+    const dbId = firebaseAppletConfig.firestoreDatabaseId || '(default)';
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionName}?pageSize=1000`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (rawToken) {
+      headers['Authorization'] = `Bearer ${rawToken}`;
+    }
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Firestore REST API returned ${resp.status}: ${errText}`);
+    }
+    const data: any = await resp.json();
+    const docs = (data.documents || []).map((doc: any) => {
+      const parts = (doc.name || '').split('/');
+      const id = parts[parts.length - 1];
+      const parsedData = parseFirestoreRestFields(doc.fields || {});
+      return { id, ...parsedData, _createTime: doc.createTime, _updateTime: doc.updateTime };
+    });
+    return docs;
+  }
+
+  async function updateFirestoreDocRest(collectionName: string, docId: string, updates: Record<string, any>, rawToken?: string): Promise<any> {
+    const projectId = firebaseAppletConfig.projectId;
+    const dbId = firebaseAppletConfig.firestoreDatabaseId || '(default)';
+    
+    const fields: Record<string, any> = {};
+    const updateMask: string[] = [];
+    for (const [key, value] of Object.entries(updates)) {
+      updateMask.push(key);
+      if (typeof value === 'string') fields[key] = { stringValue: value };
+      else if (typeof value === 'number') {
+        if (Number.isInteger(value)) fields[key] = { integerValue: value.toString() };
+        else fields[key] = { doubleValue: value };
+      } else if (typeof value === 'boolean') fields[key] = { booleanValue: value };
+      else if (value === null) fields[key] = { nullValue: null };
+    }
+
+    const maskQuery = updateMask.map(m => `updateMask.fieldPaths=${encodeURIComponent(m)}`).join('&');
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionName}/${docId}?${maskQuery}`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (rawToken) {
+      headers['Authorization'] = `Bearer ${rawToken}`;
+    }
+
+    const resp = await fetch(url, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ fields })
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Firestore REST patch failed (${resp.status}): ${errText}`);
+    }
+
+    const doc: any = await resp.json();
+    return { id: docId, ...parseFirestoreRestFields(doc.fields || {}) };
+  }
+
+  async function deleteFirestoreDocRest(collectionName: string, docId: string, rawToken?: string): Promise<boolean> {
+    const projectId = firebaseAppletConfig.projectId;
+    const dbId = firebaseAppletConfig.firestoreDatabaseId || '(default)';
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionName}/${docId}`;
+    const headers: Record<string, string> = {};
+    if (rawToken) {
+      headers['Authorization'] = `Bearer ${rawToken}`;
+    }
+    const resp = await fetch(url, { method: 'DELETE', headers });
+    if (!resp.ok && resp.status !== 404) {
+      const errText = await resp.text().catch(() => '');
+      throw new Error(`Firestore REST delete failed (${resp.status}): ${errText}`);
+    }
+    return true;
+  }
+
   // GET /api/admin/users - Returns list of all users, credits, plan stats, and report counts
   app.get("/api/admin/users", requireAuth, async (req: any, res) => {
     try {
@@ -2078,19 +2195,33 @@ Return schema:
         return res.status(403).json({ error: "Forbidden", message: "Restricted to Super Admin (josephsweetsinc@gmail.com) only." });
       }
 
-      const db = getAdminDb();
-      const authAdmin = getAdminAuth(getAdminApp());
+      // 1. Fetch all Firestore user docs (with REST API fallback if Admin SDK has PERMISSION_DENIED)
+      let firestoreUsers: any[] = [];
+      try {
+        const db = getAdminDb();
+        const usersSnap = await db.collection('users').get();
+        usersSnap.forEach(docSnap => {
+          firestoreUsers.push({ id: docSnap.id, ...docSnap.data() });
+        });
+      } catch (dbErr: any) {
+        console.warn('[Admin API] Admin SDK failed to list users, trying REST API fallback:', dbErr.message);
+        try {
+          firestoreUsers = await fetchFirestoreCollectionRest('users', req.rawToken);
+        } catch (restErr: any) {
+          console.error('[Admin API] Both Admin SDK and REST API fallback failed:', restErr.message);
+          throw new Error(`Failed to load users: ${restErr.message || dbErr.message}`);
+        }
+      }
 
-      // 1. Fetch all Firestore user docs
-      const usersSnap = await db.collection('users').get();
       const firestoreUsersMap = new Map<string, any>();
-      usersSnap.forEach(docSnap => {
-        firestoreUsersMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+      firestoreUsers.forEach(u => {
+        firestoreUsersMap.set(u.id, u);
       });
 
       // 2. Fetch Firebase Auth users to ensure zero orphans
       let authUsers: any[] = [];
       try {
+        const authAdmin = getAdminAuth(getAdminApp());
         const listUsersResult = await authAdmin.listUsers(1000);
         authUsers = listUsersResult.users;
       } catch (authErr: any) {
@@ -2100,6 +2231,7 @@ Return schema:
       // 3. Count reports per user
       const reportCountsMap = new Map<string, number>();
       try {
+        const db = getAdminDb();
         const reportsSnap = await db.collection('reports').get();
         reportsSnap.forEach(rSnap => {
           const rData = rSnap.data();
@@ -2109,7 +2241,18 @@ Return schema:
           }
         });
       } catch (repErr: any) {
-        console.warn('[Admin API] Failed to aggregate reports:', repErr.message);
+        console.warn('[Admin API] Failed to aggregate reports via Admin SDK, trying REST API fallback:', repErr.message);
+        try {
+          const reportsRest = await fetchFirestoreCollectionRest('reports', req.rawToken);
+          reportsRest.forEach(rData => {
+            const clinicId = rData.clinicId || rData.userId;
+            if (clinicId) {
+              reportCountsMap.set(clinicId, (reportCountsMap.get(clinicId) || 0) + 1);
+            }
+          });
+        } catch (restRepErr: any) {
+          console.warn('[Admin API] REST reports aggregation fallback warning:', restRepErr.message);
+        }
       }
 
       // Merge auth users and firestore users
@@ -2182,14 +2325,6 @@ Return schema:
         return res.status(400).json({ error: "Bad Request", message: "No valid update fields provided." });
       }
 
-      const db = getAdminDb();
-      const userRef = db.collection('users').doc(targetUid);
-      const userSnap = await userRef.get();
-
-      if (!userSnap.exists) {
-        return res.status(404).json({ error: "Not Found", message: `User ${targetUid} profile not found in database.` });
-      }
-
       const updateData: Record<string, any> = {};
       if (typeof reportCredits === 'number') {
         updateData.reportCredits = Math.max(0, Math.floor(reportCredits));
@@ -2201,10 +2336,17 @@ Return schema:
         updateData.subscriptionStatus = subscriptionStatus;
       }
 
-      await userRef.update(updateData);
-      const updatedSnap = await userRef.get();
-
-      res.json({ success: true, user: { id: updatedSnap.id, ...updatedSnap.data() } });
+      try {
+        const db = getAdminDb();
+        const userRef = db.collection('users').doc(targetUid);
+        await userRef.update(updateData);
+        const updatedSnap = await userRef.get();
+        return res.json({ success: true, user: { id: updatedSnap.id, ...updatedSnap.data() } });
+      } catch (adminErr: any) {
+        console.warn('[Admin API] Admin SDK failed to update user, falling back to REST API:', adminErr.message);
+        const updated = await updateFirestoreDocRest('users', targetUid, updateData, req.rawToken);
+        return res.json({ success: true, user: updated });
+      }
     } catch (err: any) {
       console.error('[Admin API] Error updating credits/plan:', err);
       res.status(500).json({ error: err.message || 'Failed to update user.' });
@@ -2219,36 +2361,30 @@ Return schema:
       }
 
       const targetUid = req.params.uid;
-      const db = getAdminDb();
-      const authAdmin = getAdminAuth(getAdminApp());
 
       // Safety: Prevent deleting the Super Admin!
       if (targetUid === req.uid) {
         return res.status(400).json({ error: "Bad Request", message: "Cannot delete the super administrator account." });
       }
 
-      // Check if target user is super admin by email
-      const userDoc = await db.collection('users').doc(targetUid).get();
-      if (userDoc.exists) {
-        const uEmail = userDoc.data()?.email?.toLowerCase();
-        if (uEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
-          return res.status(400).json({ error: "Bad Request", message: "Cannot delete the super administrator account." });
-        }
+      // 1. Delete reports and user document
+      try {
+        const db = getAdminDb();
+        const reportsSnap = await db.collection('reports').where('clinicId', '==', targetUid).get();
+        const batch = db.batch();
+        reportsSnap.forEach(rDoc => {
+          batch.delete(rDoc.ref);
+        });
+        await batch.commit();
+        await db.collection('users').doc(targetUid).delete();
+      } catch (adminErr: any) {
+        console.warn('[Admin API] Admin SDK deletion failed, falling back to REST API:', adminErr.message);
+        await deleteFirestoreDocRest('users', targetUid, req.rawToken);
       }
 
-      // 1. Delete all reports created by this user
-      const reportsSnap = await db.collection('reports').where('clinicId', '==', targetUid).get();
-      const batch = db.batch();
-      reportsSnap.forEach(rDoc => {
-        batch.delete(rDoc.ref);
-      });
-      await batch.commit();
-
-      // 2. Delete Firestore user document
-      await db.collection('users').doc(targetUid).delete();
-
-      // 3. Delete from Firebase Authentication
+      // 2. Delete from Firebase Authentication
       try {
+        const authAdmin = getAdminAuth(getAdminApp());
         await authAdmin.deleteUser(targetUid);
       } catch (authErr: any) {
         console.warn(`[Admin API] User ${targetUid} not found in Firebase Auth or failed to delete from Auth:`, authErr.message);
@@ -2256,7 +2392,7 @@ Return schema:
 
       res.json({
         success: true,
-        message: `User ${targetUid} and ${reportsSnap.size} associated compliance report(s) deleted permanently.`
+        message: `User ${targetUid} deleted successfully.`
       });
     } catch (err: any) {
       console.error('[Admin API] Error deleting user:', err);
