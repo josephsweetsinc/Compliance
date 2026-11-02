@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { auth, db } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { UserProfile } from '../types';
 import {
@@ -90,43 +90,56 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
   const isCurrentSuperAdmin = profile.email?.toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase();
 
   const fetchUsers = async (isManualRefresh = false) => {
-    if (isManualRefresh) setRefreshing(true);
-    else setLoading(true);
+    if (isManualRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
 
     let loadedSuccessfully = false;
 
-    // 1. First attempt: call server admin API
     try {
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        const idToken = await currentUser.getIdToken(true);
-        const res = await fetch('/api/admin/users', {
-          headers: {
-            'Authorization': `Bearer ${idToken}`,
-            'Content-Type': 'application/json'
-          }
-        });
+      // 1. First attempt: call server admin API
+      try {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const idToken = await currentUser.getIdToken(true);
+          const res = await fetch('/api/admin/users', {
+            headers: {
+              'Authorization': `Bearer ${idToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
 
-        if (res.ok) {
-          const data = await res.json();
-          setUsers(data.users || []);
-          if (data.stats) {
-            setStats(data.stats);
+          if (res.ok) {
+            const data = await res.json();
+            if (!data.clientFallback && Array.isArray(data.users) && data.users.length > 0) {
+              const serverUsers: AdminUserData[] = data.users;
+              setUsers(serverUsers);
+              const statsToSet = (data.stats && data.stats.totalUsers > 0) ? data.stats : {
+                totalUsers: serverUsers.length,
+                activeSubscriptions: serverUsers.filter((u: any) => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
+                totalCredits: serverUsers.reduce((sum: number, u: any) => sum + (u.reportCredits || 0), 0),
+                totalReports: serverUsers.reduce((sum: number, u: any) => sum + (u.reportsCount || 0), 0),
+              };
+              setStats(statsToSet);
+              setError(null);
+              loadedSuccessfully = true;
+              return;
+            }
           }
-          loadedSuccessfully = true;
-          return;
-        } else {
-          console.warn('[AdminPage] /api/admin/users returned non-OK status:', res.status);
         }
+      } catch (apiErr) {
+        console.warn('[AdminPage] /api/admin/users request notice, falling back to direct Firestore:', apiErr);
       }
-    } catch (apiErr) {
-      console.warn('[AdminPage] /api/admin/users request failed:', apiErr);
-    }
 
-    // 2. Direct Firestore SDK Fallback (Super Admin access allowed by firestore.rules)
-    try {
-      const usersSnap = await getDocs(collection(db, 'users'));
+      // 2. Direct Firestore SDK fallback (Super Admin access allowed by firestore.rules)
+      const usersSnap = await getDocs(collection(db, 'users')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'users');
+        throw err;
+      });
+
       let reportsSnap: any = { size: 0, forEach: () => {} };
       try {
         reportsSnap = await getDocs(collection(db, 'reports'));
@@ -177,7 +190,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       setError(null);
       loadedSuccessfully = true;
     } catch (clientErr: any) {
-      console.error('Error in client fallback:', clientErr);
+      console.error('[AdminPage] Error loading users:', clientErr);
       if (!loadedSuccessfully) {
         setError(clientErr.message || 'An unexpected error occurred while loading users.');
       }
@@ -188,7 +201,30 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
   };
 
   useEffect(() => {
-    fetchUsers();
+    let isMounted = true;
+
+    if (auth.currentUser) {
+      fetchUsers();
+    }
+
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user && isMounted) {
+        fetchUsers();
+      }
+    });
+
+    const watchdogTimer = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      clearTimeout(watchdogTimer);
+    };
   }, []);
 
   const showToast = (message: string) => {
@@ -433,7 +469,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => fetchUsers(true)}
-              disabled={refreshing || loading}
+              disabled={refreshing || (loading && users.length === 0)}
               className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 active:scale-95 text-white rounded-xl text-sm font-semibold backdrop-blur-sm border border-white/15 transition-all cursor-pointer disabled:opacity-50"
             >
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
@@ -452,7 +488,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           <div className="min-w-0">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Users</p>
             <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
-              {loading ? '...' : stats.totalUsers}
+              {(loading && users.length === 0) ? '...' : (stats.totalUsers || users.length)}
             </p>
           </div>
         </div>
@@ -464,7 +500,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           <div className="min-w-0">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Monthly Active</p>
             <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
-              {loading ? '...' : stats.activeSubscriptions}
+              {(loading && users.length === 0) ? '...' : stats.activeSubscriptions}
             </p>
           </div>
         </div>
@@ -476,7 +512,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           <div className="min-w-0">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Active Credits</p>
             <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
-              {loading ? '...' : stats.totalCredits}
+              {(loading && users.length === 0) ? '...' : stats.totalCredits}
             </p>
           </div>
         </div>
@@ -488,7 +524,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           <div className="min-w-0">
             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Reports</p>
             <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
-              {loading ? '...' : stats.totalReports}
+              {(loading && users.length === 0) ? '...' : stats.totalReports}
             </p>
           </div>
         </div>
@@ -588,7 +624,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       )}
 
       {/* Users List & Table */}
-      {loading ? (
+      {(loading && users.length === 0) ? (
         <div className="p-12 text-center bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-indigo-600 dark:border-indigo-400 mx-auto"></div>
           <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 mt-4">Loading system users and Firestore records...</p>

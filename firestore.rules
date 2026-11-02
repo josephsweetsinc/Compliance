@@ -119,7 +119,8 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isSuperAdmin();
+      allow get: if isOwner(userId) || isSuperAdmin();
+      allow list: if isSuperAdmin();
       allow create: if (isOwner(userId) && isValidUser(incoming()) && billingFieldsAreDefaults(incoming())) || isSuperAdmin();
       allow update: if (isOwner(userId) && isValidUser(incoming()) &&
                        incoming().uid == existing().uid &&
@@ -130,7 +131,8 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow read: if (isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid)) || isSuperAdmin();
+      allow get: if (isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid)) || isSuperAdmin();
+      allow list: if (isAuthenticated() && resource.data.clinicId == request.auth.uid) || isSuperAdmin();
       allow create: if (isAuthenticated() && isValidId(reportId) && isValidReport(incoming()) && incoming().id == reportId) || isSuperAdmin();
       allow update: if (isDocOwner() && isValidId(reportId) && isValidReport(incoming()) &&
                        incoming().id == existing().id &&

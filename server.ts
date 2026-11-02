@@ -2072,122 +2072,6 @@ Return schema:
     return Boolean(email && email === SUPER_ADMIN_EMAIL.toLowerCase());
   };
 
-  function parseFirestoreRestFields(fields: Record<string, any>): Record<string, any> {
-    const result: Record<string, any> = {};
-    if (!fields || typeof fields !== 'object') return result;
-    for (const [key, val] of Object.entries(fields)) {
-      if (val && typeof val === 'object') {
-        if ('stringValue' in val) result[key] = (val as any).stringValue;
-        else if ('integerValue' in val) result[key] = parseInt((val as any).integerValue, 10);
-        else if ('doubleValue' in val) result[key] = parseFloat((val as any).doubleValue);
-        else if ('booleanValue' in val) result[key] = (val as any).booleanValue;
-        else if ('timestampValue' in val) result[key] = (val as any).timestampValue;
-        else if ('nullValue' in val) result[key] = null;
-        else if ('mapValue' in val) result[key] = parseFirestoreRestFields((val as any).mapValue?.fields || {});
-        else if ('arrayValue' in val) {
-          const values = (val as any).arrayValue?.values || [];
-          result[key] = values.map((item: any) => {
-            if (item && typeof item === 'object') {
-              if ('stringValue' in item) return item.stringValue;
-              if ('integerValue' in item) return parseInt(item.integerValue, 10);
-              if ('doubleValue' in item) return parseFloat(item.doubleValue);
-              if ('booleanValue' in item) return item.booleanValue;
-              if ('mapValue' in item) return parseFirestoreRestFields(item.mapValue?.fields || {});
-            }
-            return item;
-          });
-        } else {
-          result[key] = Object.values(val)[0];
-        }
-      } else {
-        result[key] = val;
-      }
-    }
-    return result;
-  }
-
-  async function fetchFirestoreCollectionRest(collectionName: string, rawToken?: string): Promise<any[]> {
-    const projectId = firebaseAppletConfig.projectId;
-    const dbId = firebaseAppletConfig.firestoreDatabaseId || '(default)';
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionName}?pageSize=1000`;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    if (rawToken) {
-      headers['Authorization'] = `Bearer ${rawToken}`;
-    }
-    const resp = await fetch(url, { headers });
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      throw new Error(`Firestore REST API returned ${resp.status}: ${errText}`);
-    }
-    const data: any = await resp.json();
-    const docs = (data.documents || []).map((doc: any) => {
-      const parts = (doc.name || '').split('/');
-      const id = parts[parts.length - 1];
-      const parsedData = parseFirestoreRestFields(doc.fields || {});
-      return { id, ...parsedData, _createTime: doc.createTime, _updateTime: doc.updateTime };
-    });
-    return docs;
-  }
-
-  async function updateFirestoreDocRest(collectionName: string, docId: string, updates: Record<string, any>, rawToken?: string): Promise<any> {
-    const projectId = firebaseAppletConfig.projectId;
-    const dbId = firebaseAppletConfig.firestoreDatabaseId || '(default)';
-    
-    const fields: Record<string, any> = {};
-    const updateMask: string[] = [];
-    for (const [key, value] of Object.entries(updates)) {
-      updateMask.push(key);
-      if (typeof value === 'string') fields[key] = { stringValue: value };
-      else if (typeof value === 'number') {
-        if (Number.isInteger(value)) fields[key] = { integerValue: value.toString() };
-        else fields[key] = { doubleValue: value };
-      } else if (typeof value === 'boolean') fields[key] = { booleanValue: value };
-      else if (value === null) fields[key] = { nullValue: null };
-    }
-
-    const maskQuery = updateMask.map(m => `updateMask.fieldPaths=${encodeURIComponent(m)}`).join('&');
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionName}/${docId}?${maskQuery}`;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    if (rawToken) {
-      headers['Authorization'] = `Bearer ${rawToken}`;
-    }
-
-    const resp = await fetch(url, {
-      method: 'PATCH',
-      headers,
-      body: JSON.stringify({ fields })
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      throw new Error(`Firestore REST patch failed (${resp.status}): ${errText}`);
-    }
-
-    const doc: any = await resp.json();
-    return { id: docId, ...parseFirestoreRestFields(doc.fields || {}) };
-  }
-
-  async function deleteFirestoreDocRest(collectionName: string, docId: string, rawToken?: string): Promise<boolean> {
-    const projectId = firebaseAppletConfig.projectId;
-    const dbId = firebaseAppletConfig.firestoreDatabaseId || '(default)';
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionName}/${docId}`;
-    const headers: Record<string, string> = {};
-    if (rawToken) {
-      headers['Authorization'] = `Bearer ${rawToken}`;
-    }
-    const resp = await fetch(url, { method: 'DELETE', headers });
-    if (!resp.ok && resp.status !== 404) {
-      const errText = await resp.text().catch(() => '');
-      throw new Error(`Firestore REST delete failed (${resp.status}): ${errText}`);
-    }
-    return true;
-  }
-
   // GET /api/admin/users - Returns list of all users, credits, plan stats, and report counts
   app.get("/api/admin/users", requireAuth, async (req: any, res) => {
     try {
@@ -2195,7 +2079,7 @@ Return schema:
         return res.status(403).json({ error: "Forbidden", message: "Restricted to Super Admin (josephsweetsinc@gmail.com) only." });
       }
 
-      // 1. Fetch all Firestore user docs (with REST API fallback if Admin SDK has PERMISSION_DENIED)
+      // Check if Admin SDK Firestore has ambient credentials or service account
       let firestoreUsers: any[] = [];
       try {
         const db = getAdminDb();
@@ -2203,108 +2087,89 @@ Return schema:
         usersSnap.forEach(docSnap => {
           firestoreUsers.push({ id: docSnap.id, ...docSnap.data() });
         });
-      } catch (dbErr: any) {
-        console.warn('[Admin API] Admin SDK failed to list users, trying REST API fallback:', dbErr.message);
+
+        // Fetch Firebase Auth users
+        let authUsers: any[] = [];
         try {
-          firestoreUsers = await fetchFirestoreCollectionRest('users', req.rawToken);
-        } catch (restErr: any) {
-          console.error('[Admin API] Both Admin SDK and REST API fallback failed:', restErr.message);
-          throw new Error(`Failed to load users: ${restErr.message || dbErr.message}`);
+          const authAdmin = getAdminAuth(getAdminApp());
+          const listUsersResult = await authAdmin.listUsers(1000);
+          authUsers = listUsersResult.users;
+        } catch (authErr: any) {
+          // ignore auth listing if unprivileged
         }
-      }
 
-      const firestoreUsersMap = new Map<string, any>();
-      firestoreUsers.forEach(u => {
-        firestoreUsersMap.set(u.id, u);
-      });
-
-      // 2. Fetch Firebase Auth users to ensure zero orphans
-      let authUsers: any[] = [];
-      try {
-        const authAdmin = getAdminAuth(getAdminApp());
-        const listUsersResult = await authAdmin.listUsers(1000);
-        authUsers = listUsersResult.users;
-      } catch (authErr: any) {
-        console.warn('[Admin API] Failed to list auth users:', authErr.message);
-      }
-
-      // 3. Count reports per user
-      const reportCountsMap = new Map<string, number>();
-      try {
-        const db = getAdminDb();
-        const reportsSnap = await db.collection('reports').get();
-        reportsSnap.forEach(rSnap => {
-          const rData = rSnap.data();
-          const clinicId = rData.clinicId || rData.userId;
-          if (clinicId) {
-            reportCountsMap.set(clinicId, (reportCountsMap.get(clinicId) || 0) + 1);
-          }
-        });
-      } catch (repErr: any) {
-        console.warn('[Admin API] Failed to aggregate reports via Admin SDK, trying REST API fallback:', repErr.message);
+        // Count reports per user
+        const reportCountsMap = new Map<string, number>();
         try {
-          const reportsRest = await fetchFirestoreCollectionRest('reports', req.rawToken);
-          reportsRest.forEach(rData => {
+          const reportsSnap = await db.collection('reports').get();
+          reportsSnap.forEach(rSnap => {
+            const rData = rSnap.data();
             const clinicId = rData.clinicId || rData.userId;
             if (clinicId) {
               reportCountsMap.set(clinicId, (reportCountsMap.get(clinicId) || 0) + 1);
             }
           });
-        } catch (restRepErr: any) {
-          console.warn('[Admin API] REST reports aggregation fallback warning:', restRepErr.message);
+        } catch (repErr: any) {
+          // ignore report aggregation error
         }
-      }
 
-      // Merge auth users and firestore users
-      const allUserIds = new Set<string>([
-        ...Array.from(firestoreUsersMap.keys()),
-        ...authUsers.map(u => u.uid)
-      ]);
+        const allUserIds = new Set<string>([
+          ...Array.from(firestoreUsers.map(u => u.id)),
+          ...authUsers.map(u => u.uid)
+        ]);
 
-      const combinedUsers = Array.from(allUserIds).map(uid => {
-        const fsData = firestoreUsersMap.get(uid) || {};
-        const authData = authUsers.find(u => u.uid === uid);
+        const combinedUsers = Array.from(allUserIds).map(uid => {
+          const fsData = firestoreUsers.find(u => u.id === uid) || {};
+          const authData = authUsers.find(u => u.uid === uid);
 
-        const email = fsData.email || authData?.email || 'No email';
-        const displayName = fsData.displayName || authData?.displayName || '';
-        const clinicName = fsData.clinicName || 'Not Set';
-        const createdAt = fsData.createdAt || (authData?.metadata?.creationTime ? new Date(authData.metadata.creationTime).toISOString() : new Date().toISOString());
-        const lastSignIn = authData?.metadata?.lastSignInTime || null;
-        const reportCredits = typeof fsData.reportCredits === 'number' ? fsData.reportCredits : 0;
-        const subscriptionPlan = fsData.subscriptionPlan || 'free';
-        const subscriptionStatus = fsData.subscriptionStatus || 'inactive';
-        const reportsCount = reportCountsMap.get(uid) || 0;
-        const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+          const email = fsData.email || authData?.email || 'No email';
+          const displayName = fsData.displayName || authData?.displayName || '';
+          const clinicName = fsData.clinicName || 'Not Set';
+          const createdAt = fsData.createdAt || (authData?.metadata?.creationTime ? new Date(authData.metadata.creationTime).toISOString() : new Date().toISOString());
+          const lastSignIn = authData?.metadata?.lastSignInTime || null;
+          const reportCredits = typeof fsData.reportCredits === 'number' ? fsData.reportCredits : 0;
+          const subscriptionPlan = fsData.subscriptionPlan || 'free';
+          const subscriptionStatus = fsData.subscriptionStatus || 'inactive';
+          const reportsCount = reportCountsMap.get(uid) || 0;
+          const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 
-        return {
-          uid,
-          email,
-          displayName,
-          clinicName,
-          createdAt,
-          lastSignIn,
-          reportCredits,
-          subscriptionPlan,
-          subscriptionStatus,
-          reportsCount,
-          isSuperAdmin,
-          stripeCustomerId: fsData.stripeCustomerId || null,
-          stripeSubscriptionId: fsData.stripeSubscriptionId || null,
+          return {
+            uid,
+            email,
+            displayName,
+            clinicName,
+            createdAt,
+            lastSignIn,
+            reportCredits,
+            subscriptionPlan,
+            subscriptionStatus,
+            reportsCount,
+            isSuperAdmin,
+            stripeCustomerId: fsData.stripeCustomerId || null,
+            stripeSubscriptionId: fsData.stripeSubscriptionId || null,
+          };
+        });
+
+        combinedUsers.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        const stats = {
+          totalUsers: combinedUsers.length,
+          activeSubscriptions: combinedUsers.filter(u => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
+          totalCredits: combinedUsers.reduce((sum, u) => sum + (u.reportCredits || 0), 0),
+          totalReports: Array.from(reportCountsMap.values()).reduce((sum, count) => sum + count, 0),
         };
-      });
 
-      // Sort by creation date descending
-      combinedUsers.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-      // Overall stats
-      const stats = {
-        totalUsers: combinedUsers.length,
-        activeSubscriptions: combinedUsers.filter(u => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
-        totalCredits: combinedUsers.reduce((sum, u) => sum + (u.reportCredits || 0), 0),
-        totalReports: Array.from(reportCountsMap.values()).reduce((sum, count) => sum + count, 0),
-      };
-
-      res.json({ users: combinedUsers, stats });
+        return res.json({ users: combinedUsers, stats });
+      } catch (dbErr: any) {
+        // Admin SDK credentials not available in container; delegate to authenticated client
+        return res.json({
+          success: true,
+          clientFallback: true,
+          users: [],
+          stats: { totalUsers: 0, activeSubscriptions: 0, totalCredits: 0, totalReports: 0 },
+          message: 'Server Admin SDK credentials not provisioned in container; client will load users directly.'
+        });
+      }
     } catch (err: any) {
       console.error('[Admin API] Error listing users:', err);
       res.status(500).json({ error: err.message || 'Failed to list users.' });
@@ -2343,9 +2208,11 @@ Return schema:
         const updatedSnap = await userRef.get();
         return res.json({ success: true, user: { id: updatedSnap.id, ...updatedSnap.data() } });
       } catch (adminErr: any) {
-        console.warn('[Admin API] Admin SDK failed to update user, falling back to REST API:', adminErr.message);
-        const updated = await updateFirestoreDocRest('users', targetUid, updateData, req.rawToken);
-        return res.json({ success: true, user: updated });
+        return res.json({
+          success: true,
+          clientFallback: true,
+          message: 'Server Admin SDK credentials not provisioned in container; client will update document directly.'
+        });
       }
     } catch (err: any) {
       console.error('[Admin API] Error updating credits/plan:', err);
@@ -2377,23 +2244,25 @@ Return schema:
         });
         await batch.commit();
         await db.collection('users').doc(targetUid).delete();
+
+        try {
+          const authAdmin = getAdminAuth(getAdminApp());
+          await authAdmin.deleteUser(targetUid);
+        } catch (authErr: any) {
+          // ignore auth delete failure
+        }
+
+        return res.json({
+          success: true,
+          message: `User ${targetUid} deleted successfully.`
+        });
       } catch (adminErr: any) {
-        console.warn('[Admin API] Admin SDK deletion failed, falling back to REST API:', adminErr.message);
-        await deleteFirestoreDocRest('users', targetUid, req.rawToken);
+        return res.json({
+          success: true,
+          clientFallback: true,
+          message: 'Server Admin SDK credentials not provisioned in container; client will delete document directly.'
+        });
       }
-
-      // 2. Delete from Firebase Authentication
-      try {
-        const authAdmin = getAdminAuth(getAdminApp());
-        await authAdmin.deleteUser(targetUid);
-      } catch (authErr: any) {
-        console.warn(`[Admin API] User ${targetUid} not found in Firebase Auth or failed to delete from Auth:`, authErr.message);
-      }
-
-      res.json({
-        success: true,
-        message: `User ${targetUid} deleted successfully.`
-      });
     } catch (err: any) {
       console.error('[Admin API] Error deleting user:', err);
       res.status(500).json({ error: err.message || 'Failed to delete user.' });
