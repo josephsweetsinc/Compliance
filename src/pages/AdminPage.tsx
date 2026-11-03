@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { UserProfile } from '../types';
@@ -87,9 +87,17 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
   // Copy feedback state
   const [copiedUid, setCopiedUid] = useState<string | null>(null);
 
-  const isCurrentSuperAdmin = profile.email?.toLowerCase().trim() === SUPER_ADMIN_EMAIL.toLowerCase();
+  const currentEmail = (auth.currentUser?.email || profile?.email || '').toLowerCase().trim();
+  const isCurrentSuperAdmin = currentEmail === SUPER_ADMIN_EMAIL.toLowerCase();
+
+  const isFetchingRef = useRef(false);
 
   const fetchUsers = async (isManualRefresh = false) => {
+    if (isFetchingRef.current && !isManualRefresh) {
+      return;
+    }
+    isFetchingRef.current = true;
+
     if (isManualRefresh) {
       setRefreshing(true);
     } else {
@@ -100,34 +108,37 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
     let loadedSuccessfully = false;
 
     try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        // Wait until Firebase Auth user session resolves to prevent unauthenticated PERMISSION_DENIED errors
+        return;
+      }
+
       // 1. First attempt: call server admin API
       try {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const idToken = await currentUser.getIdToken(true);
-          const res = await fetch('/api/admin/users', {
-            headers: {
-              'Authorization': `Bearer ${idToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
+        const idToken = await currentUser.getIdToken(true);
+        const res = await fetch('/api/admin/users', {
+          headers: {
+            'Authorization': `Bearer ${idToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
 
-          if (res.ok) {
-            const data = await res.json();
-            if (!data.clientFallback && Array.isArray(data.users) && data.users.length > 0) {
-              const serverUsers: AdminUserData[] = data.users;
-              setUsers(serverUsers);
-              const statsToSet = (data.stats && data.stats.totalUsers > 0) ? data.stats : {
-                totalUsers: serverUsers.length,
-                activeSubscriptions: serverUsers.filter((u: any) => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
-                totalCredits: serverUsers.reduce((sum: number, u: any) => sum + (u.reportCredits || 0), 0),
-                totalReports: serverUsers.reduce((sum: number, u: any) => sum + (u.reportsCount || 0), 0),
-              };
-              setStats(statsToSet);
-              setError(null);
-              loadedSuccessfully = true;
-              return;
-            }
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.clientFallback && Array.isArray(data.users) && data.users.length > 0) {
+            const serverUsers: AdminUserData[] = data.users;
+            setUsers(serverUsers);
+            const statsToSet = (data.stats && data.stats.totalUsers > 0) ? data.stats : {
+              totalUsers: serverUsers.length,
+              activeSubscriptions: serverUsers.filter((u: any) => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
+              totalCredits: serverUsers.reduce((sum: number, u: any) => sum + (u.reportCredits || 0), 0),
+              totalReports: serverUsers.reduce((sum: number, u: any) => sum + (u.reportsCount || 0), 0),
+            };
+            setStats(statsToSet);
+            setError(null);
+            loadedSuccessfully = true;
+            return;
           }
         }
       } catch (apiErr) {
@@ -192,9 +203,19 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
     } catch (clientErr: any) {
       console.error('[AdminPage] Error loading users:', clientErr);
       if (!loadedSuccessfully) {
-        setError(clientErr.message || 'An unexpected error occurred while loading users.');
+        let msg = clientErr?.message || 'An unexpected error occurred while loading users.';
+        try {
+          const parsed = JSON.parse(msg);
+          if (parsed && parsed.error) {
+            msg = parsed.error;
+          }
+        } catch {
+          // not json
+        }
+        setError(msg);
       }
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
@@ -203,15 +224,16 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
   useEffect(() => {
     let isMounted = true;
 
-    if (auth.currentUser) {
-      fetchUsers();
-    }
-
+    // Listen to Firebase Auth state to trigger when user credentials resolve
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user && isMounted) {
         fetchUsers();
       }
     });
+
+    if (auth.currentUser) {
+      fetchUsers();
+    }
 
     const watchdogTimer = setTimeout(() => {
       if (isMounted) {
@@ -282,6 +304,9 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           reportCredits: editCredits,
           subscriptionPlan: editPlan,
           subscriptionStatus: editStatus,
+        }).catch(err => {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${editModalUser.uid}`);
+          throw err;
         });
       }
 
@@ -301,7 +326,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       showToast(`Updated ${editModalUser.email} credits to ${editCredits} (${editPlan} / ${editStatus}).`);
       setEditModalUser(null);
     } catch (err: any) {
-      alert(`Update failed: ${err.message}`);
+      showToast(`Update failed: ${err?.message || 'Could not save modifications'}`);
     } finally {
       setIsSavingEdit(false);
     }
@@ -331,13 +356,16 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       if (!updatedViaApi) {
         await updateDoc(doc(db, 'users', targetUser.uid), {
           reportCredits: newCredits
+        }).catch(err => {
+          handleFirestoreError(err, OperationType.UPDATE, `users/${targetUser.uid}`);
+          throw err;
         });
       }
 
       setUsers(prev => prev.map(u => u.uid === targetUser.uid ? { ...u, reportCredits: newCredits } : u));
       showToast(`${delta > 0 ? `+${delta}` : delta} credits for ${targetUser.email} (Now: ${newCredits})`);
     } catch (err: any) {
-      alert(`Adjustment error: ${err.message}`);
+      showToast(`Adjustment error: ${err?.message || 'Could not adjust credits'}`);
     }
   };
 
@@ -362,7 +390,10 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       }
 
       if (!deletedViaApi) {
-        await deleteDoc(doc(db, 'users', deleteModalUser.uid));
+        await deleteDoc(doc(db, 'users', deleteModalUser.uid)).catch(err => {
+          handleFirestoreError(err, OperationType.DELETE, `users/${deleteModalUser.uid}`);
+          throw err;
+        });
       }
 
       // Remove user from local state
@@ -378,7 +409,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       setDeleteModalUser(null);
       setDeleteConfirmationText('');
     } catch (err: any) {
-      alert(`Failed to delete user: ${err.message}`);
+      showToast(`Failed to delete user: ${err?.message || 'Permission denied or network failure'}`);
     } finally {
       setIsDeleting(false);
     }
