@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { UserProfile } from '../types';
@@ -25,9 +26,36 @@ import {
   ChevronDown,
   ArrowUpDown,
   UserX,
-  Lock
+  Lock,
+  Eye,
+  Calendar,
+  Activity,
+  FileCheck,
+  Building2,
+  Inbox
 } from 'lucide-react';
 import { formatDate } from '../lib/utils';
+
+export interface AdminReportData {
+  id: string;
+  clinicId: string;
+  patientName: string;
+  dob?: string;
+  licenseNumber?: string;
+  licenseState?: string;
+  status: 'Compliant' | 'Non-Compliant';
+  createdAt: string;
+  metrics?: {
+    device_type?: string;
+    report_start_date?: string;
+    report_end_date?: string;
+    total_days?: number;
+    days_used_4_plus_hours?: number;
+    usage_days_percent?: number;
+    average_usage_hours?: number;
+    ahi?: number;
+  };
+}
 
 export interface AdminUserData {
   uid: string;
@@ -56,6 +84,8 @@ const SUPER_ADMIN_EMAIL = 'josephsweetsinc@gmail.com';
 
 export default function AdminPage({ profile }: { profile: UserProfile }) {
   const [users, setUsers] = useState<AdminUserData[]>([]);
+  const [reports, setReports] = useState<AdminReportData[]>([]);
+  const [activeTab, setActiveTab] = useState<'users' | 'reports'>('users');
   const [stats, setStats] = useState<AdminStats>({
     totalUsers: 0,
     activeSubscriptions: 0,
@@ -67,16 +97,24 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
   const [error, setError] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Filters and search
+  // Filters and search for Users
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'credits' | 'reports' | 'email'>('recent');
 
+  // Filters and search for Reports
+  const [reportSearchTerm, setReportSearchTerm] = useState('');
+  const [reportStatusFilter, setReportStatusFilter] = useState<'all' | 'Compliant' | 'Non-Compliant'>('all');
+  const [reportSortBy, setReportSortBy] = useState<'recent' | 'compliance' | 'patient'>('recent');
+
   // Modal States
   const [deleteModalUser, setDeleteModalUser] = useState<AdminUserData | null>(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const [deleteModalReport, setDeleteModalReport] = useState<AdminReportData | null>(null);
+  const [isDeletingReport, setIsDeletingReport] = useState(false);
 
   const [editModalUser, setEditModalUser] = useState<AdminUserData | null>(null);
   const [editCredits, setEditCredits] = useState<number>(0);
@@ -129,6 +167,9 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           if (!data.clientFallback && Array.isArray(data.users) && data.users.length > 0) {
             const serverUsers: AdminUserData[] = data.users;
             setUsers(serverUsers);
+            if (Array.isArray(data.reports)) {
+              setReports(data.reports);
+            }
             const statsToSet = (data.stats && data.stats.totalUsers > 0) ? data.stats : {
               totalUsers: serverUsers.length,
               activeSubscriptions: serverUsers.filter((u: any) => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
@@ -159,13 +200,27 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
       }
 
       const reportCountsMap = new Map<string, number>();
+      const clientReports: AdminReportData[] = [];
       reportsSnap.forEach((docSnap: any) => {
         const data = docSnap.data();
         const cid = data.clinicId || data.userId;
         if (cid) {
           reportCountsMap.set(cid, (reportCountsMap.get(cid) || 0) + 1);
         }
+        clientReports.push({
+          id: docSnap.id,
+          clinicId: cid || '',
+          patientName: data.patientName || 'Anonymous Patient',
+          dob: data.dob || '',
+          licenseNumber: data.licenseNumber || '',
+          licenseState: data.licenseState || '',
+          status: data.status || 'Non-Compliant',
+          createdAt: data.createdAt || '',
+          metrics: data.metrics || {},
+        });
       });
+      clientReports.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setReports(clientReports);
 
       const clientUsers: AdminUserData[] = [];
       usersSnap.forEach(docSnap => {
@@ -196,7 +251,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
         totalUsers: clientUsers.length,
         activeSubscriptions: clientUsers.filter(u => u.subscriptionPlan === 'monthly_clinic' && u.subscriptionStatus === 'active').length,
         totalCredits: clientUsers.reduce((sum, u) => sum + (u.reportCredits || 0), 0),
-        totalReports: reportsSnap.size || 0,
+        totalReports: reportsSnap.size || clientReports.length || 0,
       });
       setError(null);
       loadedSuccessfully = true;
@@ -450,6 +505,67 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
     });
   }, [users, searchTerm, planFilter, statusFilter, sortBy]);
 
+  // Map of users for quick clinic lookup
+  const usersById = useMemo(() => {
+    const map = new Map<string, AdminUserData>();
+    users.forEach(u => map.set(u.uid, u));
+    return map;
+  }, [users]);
+
+  // Filtered & Sorted reports list
+  const filteredReports = useMemo(() => {
+    return reports.filter(report => {
+      const clinic = usersById.get(report.clinicId);
+      const searchTarget = `${report.patientName || ''} ${report.id} ${report.metrics?.device_type || ''} ${clinic?.clinicName || ''} ${clinic?.email || ''}`.toLowerCase();
+      const matchesSearch = !reportSearchTerm || searchTarget.includes(reportSearchTerm.toLowerCase().trim());
+      const matchesStatus = reportStatusFilter === 'all' || report.status === reportStatusFilter;
+      return matchesSearch && matchesStatus;
+    }).sort((a, b) => {
+      if (reportSortBy === 'recent') {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
+      if (reportSortBy === 'compliance') {
+        const aVal = a.metrics?.usage_days_percent ?? (a.status === 'Compliant' ? 100 : 0);
+        const bVal = b.metrics?.usage_days_percent ?? (b.status === 'Compliant' ? 100 : 0);
+        return bVal - aVal;
+      }
+      if (reportSortBy === 'patient') {
+        return (a.patientName || '').localeCompare(b.patientName || '');
+      }
+      return 0;
+    });
+  }, [reports, usersById, reportSearchTerm, reportStatusFilter, reportSortBy]);
+
+  // Delete Report Handler
+  const handleDeleteReport = async () => {
+    if (!deleteModalReport) return;
+    setIsDeletingReport(true);
+    try {
+      await deleteDoc(doc(db, 'reports', deleteModalReport.id));
+      setReports(prev => prev.filter(r => r.id !== deleteModalReport.id));
+      setStats(prev => ({
+        ...prev,
+        totalReports: Math.max(0, prev.totalReports - 1),
+      }));
+      showToast(`Report for "${deleteModalReport.patientName}" was deleted.`);
+      setDeleteModalReport(null);
+    } catch (err: any) {
+      console.error('Failed to delete report:', err);
+      showToast(`Failed to delete report: ${err?.message || 'Permission denied or network failure'}`);
+    } finally {
+      setIsDeletingReport(false);
+    }
+  };
+
+  // Report statistics summary
+  const reportStats = useMemo(() => {
+    const total = reports.length;
+    const compliant = reports.filter(r => r.status === 'Compliant').length;
+    const nonCompliant = total - compliant;
+    const compliantRate = total > 0 ? Math.round((compliant / total) * 100) : 0;
+    return { total, compliant, nonCompliant, compliantRate };
+  }, [reports]);
+
   // Access guard
   if (!isCurrentSuperAdmin) {
     return (
@@ -561,8 +677,51 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
         </div>
       </section>
 
-      {/* Filter and Search Bar */}
-      <section className="bg-white dark:bg-[#0f172a] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+      {/* Primary Tab Switcher */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2 sm:gap-4">
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`flex items-center gap-2.5 pb-3 px-3 text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === 'users'
+              ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+          }`}
+        >
+          <Users size={18} />
+          <span>Registered Clinics & Users</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-extrabold ${
+            activeTab === 'users'
+              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300'
+              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+          }`}>
+            {users.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('reports')}
+          className={`flex items-center gap-2.5 pb-3 px-3 text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === 'reports'
+              ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+          }`}
+        >
+          <FileText size={18} />
+          <span>All Compliance Reports</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-extrabold ${
+            activeTab === 'reports'
+              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300'
+              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+          }`}>
+            {reports.length}
+          </span>
+        </button>
+      </div>
+
+      {activeTab === 'users' && (
+        <>
+          {/* Filter and Search Bar */}
+          <section className="bg-white dark:bg-[#0f172a] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
           {/* Search Box */}
           <div className="relative flex-1">
@@ -938,6 +1097,353 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
           </div>
         </div>
       )}
+      </>
+      )}
+
+      {/* TAB 2: ALL COMPLIANCE REPORTS INSPECTION */}
+      {activeTab === 'reports' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3.5 bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                <FileText size={20} />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Reports Run</p>
+                <p className="text-lg font-black text-slate-900 dark:text-white">{reports.length}</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <CheckCircle2 size={20} />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Compliant Outcomes</p>
+                <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                  {reportStats.compliant} <span className="text-xs font-semibold text-slate-400">({reportStats.compliantRate}%)</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <XCircle size={20} />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Non-Compliant Outcomes</p>
+                <p className="text-lg font-black text-rose-600 dark:text-rose-400">
+                  {reportStats.nonCompliant} <span className="text-xs font-semibold text-slate-400">({100 - reportStats.compliantRate}%)</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Filter & Search Bar for Reports */}
+          <section className="bg-white dark:bg-[#0f172a] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+            <div className="flex flex-col md:flex-row gap-3">
+              {/* Search Box */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Search by patient name, clinic name/email, device model, or report ID..."
+                  value={reportSearchTerm}
+                  onChange={(e) => setReportSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white placeholder:text-slate-400"
+                />
+                {reportSearchTerm && (
+                  <button
+                    onClick={() => setReportSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex gap-2">
+                <select
+                  value={reportStatusFilter}
+                  onChange={(e) => setReportStatusFilter(e.target.value as any)}
+                  className="px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                >
+                  <option value="all">All Determinations</option>
+                  <option value="Compliant">Compliant Only</option>
+                  <option value="Non-Compliant">Non-Compliant Only</option>
+                </select>
+
+                {/* Sort dropdown */}
+                <select
+                  value={reportSortBy}
+                  onChange={(e) => setReportSortBy(e.target.value as any)}
+                  className="px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                >
+                  <option value="recent">Sort: Most Recent</option>
+                  <option value="compliance">Sort: Compliance %</option>
+                  <option value="patient">Sort: Patient Name</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+              <span>Showing <strong>{filteredReports.length}</strong> of <strong>{reports.length}</strong> compliance reports</span>
+              {(reportSearchTerm || reportStatusFilter !== 'all') && (
+                <button
+                  onClick={() => { setReportSearchTerm(''); setReportStatusFilter('all'); }}
+                  className="text-blue-600 dark:text-blue-400 font-semibold hover:underline cursor-pointer"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </section>
+
+          {/* Reports Table & List */}
+          {(loading && reports.length === 0) ? (
+            <div className="p-12 text-center bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800">
+              <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-indigo-600 dark:border-indigo-400 mx-auto"></div>
+              <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 mt-4">Loading reports from database...</p>
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="p-12 text-center bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800 space-y-3">
+              <Inbox size={40} className="mx-auto text-slate-400" />
+              <p className="text-base font-bold text-slate-800 dark:text-slate-200">
+                {reports.length === 0 ? 'No compliance reports evaluated yet' : 'No reports match your filters'}
+              </p>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                {reports.length === 0
+                  ? 'When clinic operators upload CPAP compliance printouts, their generated determinations will appear here live.'
+                  : 'Try adjusting your search criteria or clearing your determination filter.'}
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-[#0f172a] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 text-xs uppercase font-extrabold tracking-wider">
+                      <th className="py-3.5 px-4">Patient / Subject</th>
+                      <th className="py-3.5 px-4">Generating Clinic</th>
+                      <th className="py-3.5 px-4">Determination</th>
+                      <th className="py-3.5 px-4">Device & Window</th>
+                      <th className="py-3.5 px-4 text-center">Compliance Rate</th>
+                      <th className="py-3.5 px-4 text-center">Avg Hours</th>
+                      <th className="py-3.5 px-4 text-center">AHI</th>
+                      <th className="py-3.5 px-4">Evaluated Date</th>
+                      <th className="py-3.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {filteredReports.map((report) => {
+                      const clinic = usersById.get(report.clinicId);
+                      const isCompliant = report.status === 'Compliant';
+                      const usagePercent = report.metrics?.usage_days_percent ?? 0;
+                      return (
+                        <tr
+                          key={report.id}
+                          className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                        >
+                          {/* Patient */}
+                          <td className="py-3.5 px-4">
+                            <div className="flex flex-col">
+                              <span className="font-extrabold text-slate-900 dark:text-white">
+                                {report.patientName || 'Anonymous Patient'}
+                              </span>
+                              <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
+                                <span className="font-mono text-[11px]">ID: {report.id.substring(0, 10)}...</span>
+                                {report.dob && <span className="text-[11px]">• DOB: {report.dob}</span>}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Clinic */}
+                          <td className="py-3.5 px-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1">
+                                <Building2 size={13} className="text-slate-400 shrink-0" />
+                                {clinic?.clinicName || 'Direct Account'}
+                              </span>
+                              <span className="text-xs text-slate-500 font-mono truncate max-w-[180px]">
+                                {clinic?.email || report.clinicId || 'Unknown'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Determination */}
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black ${
+                              isCompliant
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            }`}>
+                              {isCompliant ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                              {report.status}
+                            </span>
+                          </td>
+
+                          {/* Device & Window */}
+                          <td className="py-3.5 px-4 text-xs">
+                            <p className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[160px]">
+                              {report.metrics?.device_type || 'CPAP Device'}
+                            </p>
+                            {(report.metrics?.report_start_date || report.metrics?.report_end_date) && (
+                              <p className="text-[11px] text-slate-400">
+                                {report.metrics.report_start_date} – {report.metrics.report_end_date}
+                              </p>
+                            )}
+                          </td>
+
+                          {/* Compliance % */}
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex flex-col items-center">
+                              <span className={`font-mono font-black text-xs px-2 py-0.5 rounded-lg ${
+                                usagePercent >= 70
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                  : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400'
+                              }`}>
+                                {usagePercent}%
+                              </span>
+                              {typeof report.metrics?.days_used_4_plus_hours === 'number' && (
+                                <span className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                                  {report.metrics.days_used_4_plus_hours}/{report.metrics?.total_days || 30} days
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Avg Hours */}
+                          <td className="py-3.5 px-4 text-center font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
+                            {typeof report.metrics?.average_usage_hours === 'number'
+                              ? `${report.metrics.average_usage_hours} hrs`
+                              : '—'}
+                          </td>
+
+                          {/* AHI */}
+                          <td className="py-3.5 px-4 text-center font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
+                            {typeof report.metrics?.ahi === 'number' ? report.metrics.ahi : '—'}
+                          </td>
+
+                          {/* Evaluated Date */}
+                          <td className="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">
+                            {formatDate(report.createdAt)}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* Inspect Full Report */}
+                              <Link
+                                to={`/dashboard/report/${report.id}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold rounded-xl text-xs transition-all shadow-xs cursor-pointer"
+                              >
+                                <Eye size={13} />
+                                <span>Inspect</span>
+                                <ExternalLink size={11} />
+                              </Link>
+
+                              {/* Delete Report */}
+                              <button
+                                onClick={() => setDeleteModalReport(report)}
+                                title="Delete report"
+                                className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all cursor-pointer"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Card View */}
+              <div className="block lg:hidden divide-y divide-slate-100 dark:divide-slate-800/60">
+                {filteredReports.map((report) => {
+                  const clinic = usersById.get(report.clinicId);
+                  const isCompliant = report.status === 'Compliant';
+                  const usagePercent = report.metrics?.usage_days_percent ?? 0;
+                  return (
+                    <div key={report.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-extrabold text-slate-900 dark:text-white text-base">
+                            {report.patientName || 'Anonymous Patient'}
+                          </p>
+                          <p className="text-xs text-slate-500 font-mono mt-0.5">
+                            ID: {report.id.substring(0, 16)}
+                          </p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black ${
+                          isCompliant
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                            : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+                        }`}>
+                          {isCompliant ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                          {report.status}
+                        </span>
+                      </div>
+
+                      <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                        <p className="flex items-center gap-1.5">
+                          <Building2 size={13} className="text-slate-400" />
+                          <span>Clinic: <strong>{clinic?.clinicName || 'Direct Account'}</strong> ({clinic?.email || report.clinicId})</span>
+                        </p>
+                        <p className="text-slate-500">Device: {report.metrics?.device_type || 'CPAP'}</p>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 p-2.5 bg-slate-50 dark:bg-slate-900 rounded-xl text-xs text-center">
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Usage %</p>
+                          <p className={`font-mono font-black mt-0.5 ${usagePercent >= 70 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {usagePercent}%
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Avg Hours</p>
+                          <p className="font-mono font-bold text-slate-700 dark:text-slate-300 mt-0.5">
+                            {report.metrics?.average_usage_hours ? `${report.metrics.average_usage_hours}h` : '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">AHI</p>
+                          <p className="font-mono font-bold text-slate-700 dark:text-slate-300 mt-0.5">
+                            {report.metrics?.ahi ?? '—'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-slate-400">{formatDate(report.createdAt)}</span>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`/dashboard/report/${report.id}`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white font-bold rounded-lg text-xs cursor-pointer"
+                          >
+                            <Eye size={13} />
+                            <span>Inspect Report</span>
+                          </Link>
+                          <button
+                            onClick={() => setDeleteModalReport(report)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg cursor-pointer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* MODAL 1: DELETE USER CONFIRMATION                                        */}
@@ -1160,6 +1666,74 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
                   <>
                     <Check size={16} />
                     <span>Save Adjustments</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 3: DELETE REPORT CONFIRMATION                                      */}
+      {/* ========================================================================= */}
+      {deleteModalReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#0f172a] rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/60 space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
+              <Trash2 size={28} />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                Delete Compliance Report?
+              </h3>
+              <p className="text-xs text-rose-600 dark:text-rose-400 font-bold uppercase tracking-wider mt-1">
+                Permanent • Irreversible Action
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Patient:</span>
+                <strong className="text-slate-900 dark:text-white">{deleteModalReport.patientName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Tracker ID:</span>
+                <span className="font-mono text-slate-600 dark:text-slate-400">{deleteModalReport.id.substring(0, 16)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Determination:</span>
+                <strong className={deleteModalReport.status === 'Compliant' ? 'text-emerald-600' : 'text-rose-600'}>
+                  {deleteModalReport.status}
+                </strong>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteModalReport(null)}
+                disabled={isDeletingReport}
+                className="flex-1 py-2.5 px-4 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteReport}
+                disabled={isDeletingReport}
+                className="flex-1 py-2.5 px-4 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20"
+              >
+                {isDeletingReport ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    <span>Delete Report</span>
                   </>
                 )}
               </button>

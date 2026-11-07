@@ -2098,8 +2098,9 @@ Return schema:
           // ignore auth listing if unprivileged
         }
 
-        // Count reports per user
+        // Count reports per user and collect detailed report summaries for super admin inspection
         const reportCountsMap = new Map<string, number>();
+        const allReportsList: any[] = [];
         try {
           const reportsSnap = await db.collection('reports').get();
           reportsSnap.forEach(rSnap => {
@@ -2108,7 +2109,19 @@ Return schema:
             if (clinicId) {
               reportCountsMap.set(clinicId, (reportCountsMap.get(clinicId) || 0) + 1);
             }
+            allReportsList.push({
+              id: rSnap.id,
+              clinicId: clinicId || '',
+              patientName: rData.patientName || 'Anonymous Patient',
+              dob: rData.dob || '',
+              licenseNumber: rData.licenseNumber || '',
+              licenseState: rData.licenseState || '',
+              status: rData.status || 'Non-Compliant',
+              createdAt: rData.createdAt || '',
+              metrics: rData.metrics || {},
+            });
           });
+          allReportsList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         } catch (repErr: any) {
           // ignore report aggregation error
         }
@@ -2159,7 +2172,7 @@ Return schema:
           totalReports: Array.from(reportCountsMap.values()).reduce((sum, count) => sum + count, 0),
         };
 
-        return res.json({ users: combinedUsers, stats });
+        return res.json({ users: combinedUsers, stats, reports: allReportsList });
       } catch (dbErr: any) {
         // Admin SDK credentials not available in container; delegate to authenticated client
         return res.json({
