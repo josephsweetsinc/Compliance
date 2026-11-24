@@ -135,9 +135,15 @@ export default function HelpPage() {
   const handleSimulateApiFailure = async () => {
     setTestStatus('Sending simulated API failure to /api/extract-metrics...');
     try {
+      const token = await auth.currentUser?.getIdToken().catch(() => null);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch('/api/extract-metrics', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ text: 'INVALID_EMPTY_TEST_DATA' }),
       });
       const data = await res.json().catch(() => ({}));
@@ -378,18 +384,23 @@ export default function HelpPage() {
       {/* Support Footer */}
       <div className="bg-slate-900 rounded-3xl p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative">
         <div className="relative z-10">
-          <h2 className="text-xl font-bold mb-2">Still have questions?</h2>
-          <p className="text-slate-400 text-sm">Our team of compliance experts is available to help with any questions.</p>
+          <h2 className="text-xl font-bold mb-2">Still have questions or concerns?</h2>
+          <p className="text-slate-400 text-sm">
+            Reach our compliance support team directly at{' '}
+            <a href="mailto:admin@complyzzz.com" className="text-blue-400 hover:text-blue-300 font-semibold underline">
+              admin@complyzzz.com
+            </a>
+            .
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 relative z-10 w-full md:w-auto">
-          <button className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl transition-all min-h-[44px] cursor-pointer text-sm">
+          <a
+            href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Support%20Request"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-6 rounded-xl transition-all min-h-[44px] cursor-pointer text-sm"
+          >
             <Mail size={18} />
-            <span>Contact Support</span>
-          </button>
-          <button className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold py-3.5 px-6 rounded-xl transition-all min-h-[44px] cursor-pointer text-sm">
-            <Info size={18} />
-            <span>Knowledge Base</span>
-          </button>
+            <span>Email admin@complyzzz.com</span>
+          </a>
         </div>
         {/* Abstract background element */}
         <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-blue-600/20 rounded-full blur-3xl"></div>

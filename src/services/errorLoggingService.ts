@@ -106,6 +106,14 @@ export async function logErrorToFirestore(params: LogErrorParams): Promise<strin
   const currentPath = typeof window !== 'undefined' ? window.location.pathname + window.location.search : 'unknown';
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 300) : 'unknown';
 
+  // Log locally in development for debugging
+  console.debug(`[Diagnostics] [${errorType}] ${apiEndpoint || ''} ${message}`);
+
+  // Firestore security rules and /api/log-error require an authenticated, verified user
+  if (!currentUser || !currentUser.emailVerified) {
+    return logId;
+  }
+
   const cleanContext = sanitizeContext({
     ...context,
     pathname: currentPath,
@@ -117,38 +125,37 @@ export async function logErrorToFirestore(params: LogErrorParams): Promise<strin
     errorType,
     message: (message || 'Unknown application error').substring(0, 1500),
     createdAt: new Date().toISOString(),
-    apiEndpoint: apiEndpoint ? apiEndpoint.substring(0, 300) : undefined,
-    status: typeof status === 'number' ? status : undefined,
     errorName: errorName.substring(0, 100),
-    stack: stack ? stack.substring(0, 4500) : undefined,
-    userId: currentUser?.uid || null,
-    userEmail: currentUser?.email || null,
+    userId: currentUser.uid,
+    userEmail: currentUser.email || null,
     url: currentPath.substring(0, 300),
     userAgent,
     context: cleanContext,
+    ...(apiEndpoint ? { apiEndpoint: apiEndpoint.substring(0, 300) } : {}),
+    ...(typeof status === 'number' ? { status } : {}),
+    ...(stack ? { stack: stack.substring(0, 4500) } : {}),
   };
-
-  // Log locally in development for debugging
-  console.debug(`[Diagnostics] [${errorType}] ${apiEndpoint || ''} ${message}`);
 
   // Attempt 1: Direct Client Firestore write
   try {
     const logDocRef = doc(db, 'error_logs', logId);
     await setDoc(logDocRef, errorRecord);
     return logId;
-  } catch (firestoreErr: any) {
+  } catch {
     // If client lacks direct permission or is offline, try the server fallback endpoint
   }
 
   // Attempt 2: Server-side proxy fallback (/api/log-error)
   try {
-    const idToken = await currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+    const idToken = await currentUser.getIdToken().catch(() => null);
+    if (!idToken) return logId;
 
     await fetch('/api/log-error', {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
       body: JSON.stringify(errorRecord),
     });
     return logId;

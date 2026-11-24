@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth, logout } from './lib/firebase';
+import { auth, logout, testConnection, resendVerificationEmail } from './lib/firebase';
 import { UserProfile } from './types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, Menu, X, ChevronRight, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, Menu, X, ChevronRight, ShieldCheck, MailCheck, RefreshCw, AlertCircle } from 'lucide-react';
 import { ThemeToggle } from './components/ThemeToggle';
 
 // Pages
@@ -47,6 +47,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [, setAuthRefreshTick] = useState(0);
 
   useEffect(() => {
     // Immediate early-theme detection
@@ -57,6 +58,7 @@ function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    testConnection();
   }, []);
 
   const loadProfile = async (u: User) => {
@@ -102,7 +104,15 @@ function App() {
             path="/dashboard/*"
             element={
               user ? (
-                <AuthenticatedApp user={user} profile={profile} setProfile={setProfile} />
+                <AuthenticatedApp
+                  user={user}
+                  profile={profile}
+                  setProfile={setProfile}
+                  onEmailVerified={async () => {
+                    await loadProfile(user);
+                    setAuthRefreshTick((t) => t + 1);
+                  }}
+                />
               ) : (
                 <Navigate to="/login" />
               )
@@ -115,7 +125,17 @@ function App() {
   );
 }
 
-function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: UserProfile | null; setProfile: (p: UserProfile) => void }) {
+function AuthenticatedApp({
+  user,
+  profile,
+  setProfile,
+  onEmailVerified,
+}: {
+  user: User;
+  profile: UserProfile | null;
+  setProfile: (p: UserProfile) => void;
+  onEmailVerified: () => Promise<void>;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
@@ -131,12 +151,23 @@ function AuthenticatedApp({ user, profile, setProfile }: { user: User; profile: 
     navigate('/');
   };
 
+  // Enforce verified email before profile creation or clinical workspace access
+  if (!user.emailVerified) {
+    return (
+      <EmailVerificationGate
+        user={user}
+        onVerified={onEmailVerified}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   // If no profile, show a simple setup screen
   if (!profile) {
     return <ProfileSetup user={user} setProfile={setProfile} />;
   }
 
-  const isSuperAdmin = (auth.currentUser?.email || user?.email || profile?.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
+  const isSuperAdmin = Boolean(user.emailVerified) && (auth.currentUser?.email || user?.email || profile?.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
   const isUnlimited = profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active';
   const credits = profile.reportCredits ?? 0;
 
@@ -542,17 +573,137 @@ function SidebarLink({ to, icon, label, badge }: { to: string; icon: React.React
   );
 }
 
+function EmailVerificationGate({
+  user,
+  onVerified,
+  onLogout,
+}: {
+  user: User;
+  onVerified: () => Promise<void>;
+  onLogout: () => Promise<void>;
+}) {
+  const [resending, setResending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleResend = async () => {
+    setResending(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      await resendVerificationEmail(user);
+      setStatusMessage(`A verification link was sent to ${user.email}. Please check your inbox and spam folder.`);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Unable to send verification email right now. Please wait a moment and try again.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    setChecking(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      await user.reload();
+      await user.getIdToken(true);
+      if (user.emailVerified) {
+        await onVerified();
+      } else {
+        setErrorMessage('Your email is not verified yet. Please click the verification link in your inbox, then try again.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Unable to refresh account verification status.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0b0f19] p-4 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      <div className="max-w-md w-full bg-white dark:bg-[#0f172a] rounded-2xl shadow-xl p-8 border border-slate-100 dark:border-slate-800/60 relative space-y-6">
+        <div className="absolute top-6 right-6">
+          <ThemeToggle />
+        </div>
+        <div className="flex justify-center">
+          <BrandLogo size="lg" id="verify-email-logo" />
+        </div>
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
+            <MailCheck size={24} />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Verify Your Email</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+            To protect clinical compliance records and prevent unauthorized accounts, please verify{' '}
+            <strong className="text-slate-800 dark:text-slate-200">{user.email || 'your email address'}</strong> before entering ComplyZzz.
+          </p>
+        </div>
+
+        {statusMessage && (
+          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 font-medium">
+            {statusMessage}
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 font-medium flex items-start gap-2">
+            <AlertCircle size={15} className="shrink-0 mt-0.5" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={handleCheckVerification}
+            disabled={checking || resending}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={checking ? 'animate-spin' : ''} />
+            <span>{checking ? 'Checking Verification...' : "I've Verified My Email — Continue"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending || checking}
+            className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {resending ? 'Sending Link...' : 'Resend Verification Email'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 transition-colors cursor-pointer"
+          >
+            <LogOut size={16} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProfileSetup({ user, setProfile }: { user: User; setProfile: (p: UserProfile) => void }) {
   const [clinicName, setClinicName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clinicName.trim()) return;
+    if (!user.email) {
+      setError('A verified email address is required on your account before creating a profile.');
+      return;
+    }
     setLoading(true);
+    setError(null);
     const newProfile: UserProfile = {
       uid: user.uid,
-      email: user.email!,
+      email: user.email,
       displayName: user.displayName || '',
       clinicName: clinicName.trim(),
       createdAt: new Date().toISOString(),
@@ -560,9 +711,15 @@ function ProfileSetup({ user, setProfile }: { user: User; setProfile: (p: UserPr
       subscriptionPlan: 'free',
       subscriptionStatus: 'trial',
     };
-    await setDoc(doc(db, 'users', user.uid), newProfile);
-    setProfile(newProfile);
-    setLoading(false);
+    try {
+      await setDoc(doc(db, 'users', user.uid), newProfile);
+      setProfile(newProfile);
+    } catch (err: any) {
+      console.error('Profile setup error:', err);
+      setError(err?.message || 'Unable to complete profile setup. Please ensure your email is verified and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -578,6 +735,13 @@ function ProfileSetup({ user, setProfile }: { user: User; setProfile: (p: UserPr
         <p className="text-slate-500 dark:text-slate-450 text-center text-sm mb-6 leading-relaxed">
           Welcome! Please enter your personal operator name, employer, or company name. This will register your profile and appear as the authority on generated compliance letters.
         </p>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-200 flex items-start gap-2">
+            <AlertCircle size={15} className="shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

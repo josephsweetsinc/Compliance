@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { Link } from 'react-router-dom';
 import { FileUp, History, CheckCircle, XCircle, Clock, ChevronRight, Mail, Settings, ShieldCheck, Loader2, CreditCard, Coins, Building2, Zap } from 'lucide-react';
@@ -23,11 +23,18 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
       limit(5)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ComplianceReport));
-      setRecentReports(reports);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ComplianceReport));
+        setRecentReports(reports);
+        setLoading(false);
+      },
+      (err) => {
+        setLoading(false);
+        handleFirestoreError(err, OperationType.LIST, 'reports');
+      }
+    );
 
     return () => unsubscribe();
   }, [profile.uid]);
@@ -63,7 +70,7 @@ export default function DashboardPage({ profile, setProfile }: { profile: UserPr
     nonCompliant: recentReports.filter(r => r.status === 'Non-Compliant').length,
   };
 
-  const isSuperAdmin = (auth.currentUser?.email || profile.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
+  const isSuperAdmin = Boolean(auth.currentUser?.emailVerified) && (auth.currentUser?.email || profile.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
 
   return (
     <div className="space-y-6 sm:space-y-8">

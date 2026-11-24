@@ -1093,6 +1093,18 @@ export default function LandingPage() {
             <p className="text-[11px] text-slate-500">
               Aligns with Federal Motor Carrier Safety Administration (FMCSA) 49 CFR § 391.41 & Federal Aviation Administration (FAA) 14 CFR Part 67 medical guidelines.
             </p>
+            <div className="pt-1">
+              <p className="text-[11px] text-slate-400">
+                Questions or concerns? Contact us anytime at{' '}
+                <a
+                  href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Question%20or%20Support"
+                  className="inline-flex items-center gap-1 font-semibold text-blue-400 hover:text-blue-300 hover:underline transition-colors"
+                >
+                  <Mail size={12} />
+                  <span>admin@complyzzz.com</span>
+                </a>
+              </p>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -1107,12 +1119,17 @@ export default function LandingPage() {
           </div>
 
           <div className="space-y-3">
-            <h4 className="font-bold text-white uppercase tracking-wider text-[11px]">Compliance & Legal</h4>
+            <h4 className="font-bold text-white uppercase tracking-wider text-[11px]">Compliance & Support</h4>
             <ul className="space-y-2">
               <li><a href="#security" className="hover:text-white transition-colors">Security & Privacy Protocol</a></li>
               <li><a href="#faq" className="hover:text-white transition-colors">FMCSA 70% Compliance Rule</a></li>
               <li><a href="#faq" className="hover:text-white transition-colors">FAA 6-Hour Sleep Standard</a></li>
               <li><a href="/login" className="hover:text-white transition-colors">Operator Portal Access</a></li>
+              <li>
+                <a href="mailto:admin@complyzzz.com" className="text-blue-400 hover:text-blue-300 transition-colors font-semibold">
+                  Support: admin@complyzzz.com
+                </a>
+              </li>
             </ul>
           </div>
         </div>
@@ -1123,7 +1140,12 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-slate-800/30">
             <p>© {new Date().getFullYear()} ComplyZzz Sleep Compliance Solutions. All rights reserved.</p>
-            <p>Designed for DOT NRCME Medical Examiners, Pilots, and Transportation Personnel.</p>
+            <p>
+              Questions or concerns? Email{' '}
+              <a href="mailto:admin@complyzzz.com" className="text-slate-300 hover:text-white underline">
+                admin@complyzzz.com
+              </a>
+            </p>
           </div>
         </div>
       </footer>

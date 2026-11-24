@@ -2,21 +2,23 @@
   "entities": {
     "UserProfile": {
       "title": "User Profile",
-      "description": "Stores clinical staff profile information.",
+      "description": "Stores clinical staff or operator profile information and billing entitlements.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth." },
-        "email": { "type": "string", "format": "email", "description": "User's email address." },
-        "displayName": { "type": "string", "description": "User's full name." },
-        "clinicName": { "type": "string", "description": "Name of the occupational health clinic." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "When the profile was created." },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Unique user ID from Firebase Auth." },
+        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 256, "description": "User's email address." },
+        "displayName": { "type": "string", "maxLength": 200, "description": "User's full name." },
+        "clinicName": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Name of the occupational health clinic or operator." },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64, "description": "When the profile was created." },
         "autoEmailEnabled": { "type": "boolean", "description": "Whether to auto email report summaries." },
         "subscriptionPlan": { "type": "string", "enum": ["free", "per_report", "monthly_clinic"], "description": "Active pricing tier." },
-        "subscriptionStatus": { "type": "string", "enum": ["active", "inactive", "trial", "canceled"], "description": "Status of the subscription." },
-        "subscriptionCurrentPeriodEnd": { "type": "string", "description": "Subscription end date." },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "inactive", "trial", "canceled", "past_due"], "description": "Status of the subscription." },
+        "subscriptionCurrentPeriodEnd": { "type": "string", "maxLength": 100, "description": "Subscription end date." },
         "reportCredits": { "type": "number", "description": "Number of available report generation credits." },
-        "stripeCustomerId": { "type": "string", "description": "Associated Stripe customer ID." },
-        "stripeSubscriptionId": { "type": "string", "description": "Associated Stripe subscription ID." }
+        "stripeCustomerId": { "type": "string", "maxLength": 256, "description": "Associated Stripe customer ID." },
+        "stripeSubscriptionId": { "type": "string", "maxLength": 256, "description": "Associated Stripe subscription ID." },
+        "trialRestoredAt": { "type": "string", "maxLength": 64, "description": "Timestamp when complimentary trial credit recovery was used (server-only)." },
+        "lastInvoicePaidAt": { "type": "string", "maxLength": 64, "description": "Timestamp of last paid Stripe subscription invoice (server-only)." }
       },
       "required": ["uid", "email", "clinicName", "createdAt"]
     },
@@ -25,55 +27,86 @@
       "description": "Stores extracted CPAP compliance metrics and status.",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "description": "Unique report ID." },
-        "clinicId": { "type": "string", "description": "ID of the clinic that uploaded the report." },
-        "patientName": { "type": "string", "description": "Extracted patient name." },
-        "dob": { "type": "string", "description": "Patient's date of birth." },
-        "licenseNumber": { "type": "string", "description": "Patient's driver license number." },
-        "licenseState": { "type": "string", "description": "State of issuance for the driver license." },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Unique report ID." },
+        "clinicId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "ID of the clinic/operator that uploaded the report." },
+        "patientName": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Extracted patient name." },
+        "dob": { "type": "string", "maxLength": 100, "description": "Patient's date of birth." },
+        "licenseNumber": { "type": "string", "maxLength": 100, "description": "Patient's driver license number." },
+        "licenseState": { "type": "string", "maxLength": 100, "description": "State of issuance for the driver license." },
         "metrics": {
           "type": "object",
           "properties": {
-            "patient_name": { "type": "string" },
-            "start_date": { "type": "string" },
-            "end_date": { "type": "string" },
-            "total_nights": { "type": "number" },
-            "nights_over_4_hours": { "type": "number" },
+            "patient_name": { "type": "string", "maxLength": 200 },
+            "device_type": { "type": "string", "maxLength": 150 },
+            "report_start_date": { "type": "string", "maxLength": 64 },
+            "report_end_date": { "type": "string", "maxLength": 64 },
+            "total_days": { "type": "number" },
+            "days_used_4_plus_hours": { "type": "number" },
+            "usage_days_percent": { "type": "number" },
             "compliance_percentage": { "type": "number" },
             "average_usage_hours": { "type": "number" },
-            "ahi": { "type": "number" }
+            "ahi": { "type": "number" },
+            "start_date": { "type": "string", "maxLength": 64 },
+            "end_date": { "type": "string", "maxLength": 64 },
+            "total_nights": { "type": "number" },
+            "nights_over_4_hours": { "type": "number" }
           }
         },
         "status": { "type": "string", "enum": ["Compliant", "Non-Compliant"] },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "expiresAt": { "type": "string", "format": "date-time", "description": "When the report data will be deleted from the system." }
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "expiresAt": { "type": "string", "format": "date-time", "maxLength": 64, "description": "Optional retention timestamp for legacy reports." },
+        "pdfUrl": { "type": "string", "maxLength": 500, "description": "Optional generated PDF reference." }
       },
-      "required": ["id", "clinicId", "patientName", "metrics", "status", "createdAt", "expiresAt"]
+      "required": ["id", "clinicId", "patientName", "metrics", "status", "createdAt"]
     },
     "ErrorLog": {
       "title": "Error Log",
       "description": "Stores diagnostic logs for caught rendering and API failures to identify root causes.",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "description": "Unique error log ID." },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Unique error log ID." },
         "errorType": {
           "type": "string",
           "enum": ["API_FAILURE", "RENDER_ERROR", "NETWORK_ERROR", "FIREBASE_ERROR", "AUTH_ERROR", "UNHANDLED_REJECTION"],
           "description": "Classification of the error."
         },
-        "message": { "type": "string", "description": "Human-readable error description." },
-        "apiEndpoint": { "type": "string", "description": "HTTP endpoint URL if this was an API-specific failure." },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "Human-readable error description." },
+        "apiEndpoint": { "type": "string", "maxLength": 500, "description": "HTTP endpoint URL if this was an API-specific failure." },
         "status": { "type": "number", "description": "HTTP status code or application error code." },
-        "errorName": { "type": "string", "description": "Class or name of the error exception." },
-        "stack": { "type": "string", "description": "Sanitized stack trace." },
-        "userId": { "type": "string", "description": "User UID associated with the session, if authenticated." },
-        "userEmail": { "type": "string", "description": "User email address, if available." },
-        "url": { "type": "string", "description": "Route pathname or URL where the error occurred." },
-        "userAgent": { "type": "string", "description": "Browser user agent for device diagnosis." },
+        "errorName": { "type": "string", "maxLength": 128, "description": "Class or name of the error exception." },
+        "stack": { "type": "string", "maxLength": 5000, "description": "Sanitized stack trace." },
+        "userId": { "type": "string", "maxLength": 128, "description": "User UID associated with the session." },
+        "userEmail": { "type": "string", "maxLength": 256, "description": "User email address, if available." },
+        "url": { "type": "string", "maxLength": 500, "description": "Route pathname or URL where the error occurred." },
+        "userAgent": { "type": "string", "maxLength": 500, "description": "Browser user agent for device diagnosis." },
         "context": { "type": "object", "description": "Sanitized operational context metadata." },
-        "createdAt": { "type": "string", "format": "date-time", "description": "ISO timestamp when the error occurred." }
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64, "description": "ISO timestamp when the error occurred." }
       },
-      "required": ["id", "errorType", "message", "createdAt"]
+      "required": ["id", "errorType", "message", "userId", "createdAt"]
+    },
+    "StripeProcessedSession": {
+      "title": "Stripe Processed Session",
+      "description": "Server-only idempotency ledger preventing replay of Stripe Checkout sessions.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "maxLength": 256 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "planType": { "type": "string", "enum": ["per_report", "monthly_clinic"] },
+        "credits": { "type": "number" },
+        "processedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["sessionId", "userId", "planType", "processedAt"]
+    },
+    "RefundedReport": {
+      "title": "Refunded Report",
+      "description": "Server-only ledger ensuring one-time credit refund per report ID.",
+      "type": "object",
+      "properties": {
+        "reportId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "refundedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["reportId", "userId", "refundedAt"]
     }
   },
   "firestore": {
@@ -88,6 +121,14 @@
     "/error_logs/{logId}": {
       "schema": "ErrorLog",
       "description": "Collection of caught API, network, and rendering failure logs."
+    },
+    "/stripeProcessedSessions/{sessionId}": {
+      "schema": "StripeProcessedSession",
+      "description": "Server-only Stripe session idempotency log."
+    },
+    "/refundedReports/{reportId}": {
+      "schema": "RefundedReport",
+      "description": "Server-only credit refund tracking log."
     }
   }
 }

@@ -368,30 +368,31 @@ function getAdminDb(): AdminFirestore {
   return getAdminFirestore(getAdminApp(), firebaseAppletConfig.firestoreDatabaseId);
 }
 
-async function verifyFirebaseIdToken(idToken: string): Promise<{ uid: string; email?: string } | null> {
+async function verifyFirebaseIdToken(idToken: string): Promise<{ uid: string; email?: string; emailVerified: boolean } | null> {
   try {
     const decoded = await getAdminAuth(getAdminApp()).verifyIdToken(idToken);
-    return { uid: decoded.uid, email: decoded.email };
+    return {
+      uid: decoded.uid,
+      email: decoded.email,
+      emailVerified: Boolean(decoded.email_verified),
+    };
   } catch (err: any) {
-    console.warn('Firebase ID token verification failed:', err.message);
-    try {
-      const parts = idToken.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        if (payload && (payload.user_id || payload.sub)) {
-          const tokenAud = payload.aud;
-          const tokenSub = payload.user_id || payload.sub;
-          if (tokenAud === firebaseAppletConfig.projectId && tokenSub) {
-            console.log('[Dev Token Fallback] Extracted UID from claims for project', tokenAud);
-            return { uid: tokenSub, email: payload.email };
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
+    console.warn('Firebase ID token cryptographic verification failed:', err?.message || 'invalid token');
     return null;
   }
+}
+
+function isValidDocId(id: unknown): id is string {
+  return typeof id === 'string' && id.length > 0 && id.length <= 128 && /^[a-zA-Z0-9_\-]+$/.test(id);
+}
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Grants report credits or an active subscription for a completed Stripe
@@ -535,44 +536,72 @@ async function sendTwilioSms(toPhone: string, bodyText: string) {
   return await tw.messages.create(messageOptions);
 }
 
-function getAppUrl(req?: express.Request): string {
-  // 1. If req is provided, prioritize dynamic host detection from request headers
-  if (req) {
-    const origin = (req.headers.origin || req.headers.referer) as string | undefined;
-    if (origin) {
-      try {
-        const parsed = new URL(origin);
-        if (parsed.host && !parsed.host.includes('localhost:3000')) {
-          return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
-        }
-      } catch (e) {
-        // ignore invalid URL format
-      }
-    }
-
-    const host = (req.headers['x-forwarded-host'] as string) || req.get('host');
-    const rawProto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
-    const proto = rawProto.split(',')[0].trim();
-    if (host && !host.includes('localhost:3000')) {
-      return `${proto}://${host}`.replace(/\/+$/, '');
-    }
-  }
-
-  // 2. Fallback to process.env.APP_URL if set in environment (and not generic placeholder)
+function getConfiguredAppUrl(): string {
   let envUrl = process.env.APP_URL?.trim();
   if (envUrl && envUrl.includes('=')) {
     envUrl = envUrl.split('=')[0].trim();
   }
-
   if (envUrl && envUrl !== 'http://localhost:3000' && envUrl !== 'https://localhost:3000') {
     if (!envUrl.startsWith('http://') && !envUrl.startsWith('https://')) {
       envUrl = `https://${envUrl}`;
     }
     return envUrl.replace(/\/+$/, '');
   }
-
-  // 3. Last fallback
   return 'https://reports.complyzzz.com';
+}
+
+function isAllowedAppHost(hostWithPort: string, protocol: string): boolean {
+  const cleanHost = hostWithPort.toLowerCase().trim();
+  const hostname = cleanHost.split(':')[0];
+  if (!hostname) return false;
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return protocol === 'http:' || protocol === 'https:';
+  }
+  if (protocol !== 'https:') return false;
+
+  try {
+    const configured = new URL(getConfiguredAppUrl());
+    if (configured.host.toLowerCase() === cleanHost) return true;
+  } catch {
+    // ignore
+  }
+
+  return (
+    hostname === 'complyzzz.com' ||
+    hostname.endsWith('.complyzzz.com') ||
+    hostname.endsWith('.run.app') ||
+    hostname.endsWith('.aistudio.google.com') ||
+    hostname.endsWith('.usercontent.goog') ||
+    hostname.endsWith('.web.app') ||
+    hostname.endsWith('.firebaseapp.com')
+  );
+}
+
+function getAppUrl(req?: express.Request): string {
+  // Strictly validate Origin/Referer/Host against trusted app domains to prevent phishing link injection
+  if (req) {
+    const origin = (req.headers.origin || req.headers.referer) as string | undefined;
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        if (parsed.host && !parsed.host.includes('localhost:3000') && isAllowedAppHost(parsed.host, parsed.protocol)) {
+          return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, '');
+        }
+      } catch {
+        // ignore invalid URL format
+      }
+    }
+
+    const host = ((req.headers['x-forwarded-host'] as string) || req.get('host') || '').split(',')[0].trim();
+    const rawProto = ((req.headers['x-forwarded-proto'] as string) || req.protocol || 'https').split(',')[0].trim().toLowerCase();
+    const proto = rawProto === 'http' ? 'http:' : 'https:';
+    if (host && !host.includes('localhost:3000') && isAllowedAppHost(host, proto)) {
+      return `${proto}//${host}`.replace(/\/+$/, '');
+    }
+  }
+
+  return getConfiguredAppUrl();
 }
 
 function getVerifiedFromEmail(fromEmail?: string): string {
@@ -669,27 +698,58 @@ async function startServer() {
     || (process.env.DEFAULT_APP_PORT ? parseInt(process.env.DEFAULT_APP_PORT, 10) : null)
     || (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
+  // Trust single reverse-proxy hop (Cloud Run / Nginx) so req.ip is accurate
+  app.set('trust proxy', 1);
+
   // Security: Disable X-Powered-By header to prevent server technology fingerprinting
   app.disable('x-powered-by');
 
-  // Security: Apply protective HTTP headers on all responses
-  app.use((_req, res, next) => {
+  // Security: Apply protective HTTP headers on all responses (preserving iframe preview compatibility)
+  app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(self)');
+    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
 
   // Preserve raw body buffer for Stripe webhook signature verification
   app.use(
     express.json({
-      limit: '25mb',
+      limit: '12mb',
       verify: (req: any, _res, buf) => {
         req.rawBody = buf;
       },
     })
   );
-  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '12mb' }));
+
+  // CSRF / Origin validation for mutating API requests (excluding Stripe webhooks)
+  app.use('/api', (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return next();
+    }
+    if (req.path === '/billing/webhook' || req.path === '/stripe/webhook') {
+      return next();
+    }
+    const originHeader = req.headers.origin;
+    if (originHeader) {
+      try {
+        const parsed = new URL(originHeader);
+        const reqHost = (req.get('host') || '').toLowerCase();
+        if (parsed.host.toLowerCase() !== reqHost && !isAllowedAppHost(parsed.host, parsed.protocol)) {
+          return res.status(403).json({ error: 'Forbidden', message: 'Untrusted request origin.' });
+        }
+      } catch {
+        return res.status(403).json({ error: 'Forbidden', message: 'Malformed request origin.' });
+      }
+    }
+    next();
+  });
 
   // IP-based Rate Limiter Middleware for API endpoints (Max 60 requests / min default)
   const apiRateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -712,7 +772,7 @@ async function startServer() {
         return next();
       }
 
-      const ip = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+      const ip = req.ip || req.socket.remoteAddress || 'unknown';
       const now = Date.now();
       const record = apiRateLimitMap.get(ip);
 
@@ -739,10 +799,8 @@ async function startServer() {
   const notificationRateLimiter = apiRateLimiter(12, 60 * 1000);
 
   // Authentication Verification Middleware for API endpoints.
-  // Verifies a real Firebase ID token (or the internal server-to-server key)
-  // and attaches the verified uid/email to the request - handlers must use
-  // req.uid rather than trusting a userId supplied in the request body,
-  // since a client can put any value it likes in a JSON body.
+  // Verifies a real Firebase ID token (with cryptographic signature and email verification checks)
+  // and attaches verified uid/email/emailVerified to the request.
   const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1]?.trim() : null;
@@ -762,31 +820,24 @@ async function startServer() {
       return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired authentication token.' });
     }
 
+    if (!decoded.emailVerified) {
+      return res.status(403).json({
+        error: 'Email Not Verified',
+        message: 'Please verify your email address before accessing ComplyZzz clinical APIs.'
+      });
+    }
+
     (req as any).uid = decoded.uid;
     (req as any).userEmail = decoded.email;
+    (req as any).emailVerified = decoded.emailVerified;
     (req as any).rawToken = token;
     next();
   };
 
-  // Stripe calls the webhook directly with no user session (it authenticates
-  // via the webhook signature instead), pricing config is public, and document
-  // text metric extraction has its own strict extractRateLimiter + payload size bounds.
-  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook', '/health', '/extract-metrics', '/log-error']);
+  // Only webhooks, public pricing config, and health checks bypass authentication.
+  const PUBLIC_API_PATHS = new Set(['/billing/webhook', '/billing/config', '/stripe/webhook', '/health', '/healthz']);
   const requireAuthUnlessPublic = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (PUBLIC_API_PATHS.has(req.path)) {
-      // If client provides an Authorization token on a public path, verify and attach UID quietly
-      const authHeader = req.headers.authorization;
-      const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1]?.trim() : null;
-      if (token) {
-        verifyFirebaseIdToken(token).then(decoded => {
-          if (decoded) {
-            (req as any).uid = decoded.uid;
-            (req as any).userEmail = decoded.email;
-          }
-          next();
-        }).catch(() => next());
-        return;
-      }
       return next();
     }
     return requireAuth(req, res, next);
@@ -917,9 +968,26 @@ async function startServer() {
     }
   }
 
-  // Diagnostic error logging endpoint: writes client and API failure reports to Firestore 'error_logs'
+  const ALLOWED_ERROR_TYPES = new Set([
+    'API_FAILURE',
+    'RENDER_ERROR',
+    'NETWORK_ERROR',
+    'FIREBASE_ERROR',
+    'AUTH_ERROR',
+    'UNHANDLED_REJECTION',
+  ]);
+
+  // Diagnostic error logging endpoint: writes authenticated client failure reports to Firestore 'error_logs'
   app.post("/api/log-error", async (req, res) => {
     try {
+      const verifiedUid = (req as any).uid;
+      const verifiedEmail = (req as any).userEmail;
+      const rawToken = (req as any).rawToken;
+
+      if (!verifiedUid || !isValidDocId(verifiedUid)) {
+        return res.status(401).json({ error: "Authentication required to submit diagnostic logs." });
+      }
+
       const {
         id,
         errorType,
@@ -931,43 +999,45 @@ async function startServer() {
         url,
         userAgent,
         context,
-        userId: clientUserId,
-        userEmail: clientUserEmail,
       } = req.body || {};
 
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ error: "Missing required error message." });
       }
 
-      const logId = (typeof id === 'string' && id.length > 0 && id.length <= 128 && /^[a-zA-Z0-9_\-]+$/.test(id))
+      const logId = isValidDocId(id)
         ? id
         : `err_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-      const verifiedUid = (req as any).uid || (typeof clientUserId === 'string' ? clientUserId : null);
-      const verifiedEmail = (req as any).userEmail || (typeof clientUserEmail === 'string' ? clientUserEmail : null);
+      const safeErrorType = (typeof errorType === 'string' && ALLOWED_ERROR_TYPES.has(errorType))
+        ? errorType
+        : 'API_FAILURE';
 
       const logRecord: Record<string, any> = {
         id: logId,
-        errorType: typeof errorType === 'string' ? errorType.substring(0, 64) : 'API_FAILURE',
+        errorType: safeErrorType,
         message: message.substring(0, 2000),
+        userId: verifiedUid.substring(0, 128),
         createdAt: new Date().toISOString(),
       };
 
       if (apiEndpoint && typeof apiEndpoint === 'string') logRecord.apiEndpoint = apiEndpoint.substring(0, 500);
-      if (typeof status === 'number') logRecord.status = status;
+      if (typeof status === 'number' && Number.isFinite(status)) logRecord.status = status;
       if (errorName && typeof errorName === 'string') logRecord.errorName = errorName.substring(0, 128);
       if (stack && typeof stack === 'string') logRecord.stack = stack.substring(0, 5000);
       if (url && typeof url === 'string') logRecord.url = url.substring(0, 500);
       if (userAgent && typeof userAgent === 'string') logRecord.userAgent = userAgent.substring(0, 500);
-      if (verifiedUid) logRecord.userId = verifiedUid.substring(0, 128);
-      if (verifiedEmail) logRecord.userEmail = verifiedEmail.substring(0, 256);
-      if (context && typeof context === 'object') logRecord.context = context;
+      if (verifiedEmail && typeof verifiedEmail === 'string') logRecord.userEmail = verifiedEmail.substring(0, 256);
+      if (context && typeof context === 'object' && !Array.isArray(context)) {
+        const safeCtx: Record<string, any> = {};
+        for (const [k, v] of Object.entries(context).slice(0, 20)) {
+          safeCtx[String(k).slice(0, 64)] = typeof v === 'string' ? v.slice(0, 500) : v;
+        }
+        logRecord.context = safeCtx;
+      }
 
-      const authHeader = req.headers.authorization;
-      const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1]?.trim() : undefined;
-
-      // Primary: write directly to Firestore REST API with the Web API Key
-      const written = await writeFirestoreDocumentRest('error_logs', logId, logRecord, token);
+      // Primary: write to Firestore REST API using caller's verified Firebase ID token
+      const written = await writeFirestoreDocumentRest('error_logs', logId, logRecord, rawToken);
       if (written) {
         console.log(`[Diagnostics] Stored client diagnostic record ${logId} (${logRecord.errorType})`);
         return res.json({ success: true, logId });
@@ -1188,7 +1258,7 @@ ${safeText}
           status: 422,
           userId: (req as any).uid,
           userEmail: (req as any).userEmail,
-          context: { textLength: text.length, snippet: text.substring(0, 150) },
+          context: { textLength: text.length },
           stack: geminiErr?.stack,
         });
 
@@ -1232,20 +1302,27 @@ ${safeText}
   // Multimodal Gemini Vision endpoint for CPAP compliance extraction from screenshots and photos
   app.post("/api/extract-metrics-image", extractRateLimiter, async (req, res) => {
     try {
-      const { base64Data, mimeType, filename } = req.body;
+      const { base64Data, mimeType } = req.body || {};
       if (!base64Data || typeof base64Data !== 'string') {
         return res.status(400).json({ error: "Missing image data for CPAP compliance analysis." });
       }
 
-      // Clean base64 string
+      // Clean and validate base64 image payload (max 10 MB decoded)
       const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
       if (!cleanBase64) {
         return res.status(400).json({ error: "Empty image payload provided." });
       }
+      if (cleanBase64.length > 14000000) {
+        return res.status(413).json({ error: "Image payload exceeds maximum size (10MB)." });
+      }
 
-      const safeMimeType = (mimeType && typeof mimeType === 'string' && mimeType.startsWith('image/'))
-        ? mimeType
-        : 'image/jpeg';
+      const rawMime = typeof mimeType === 'string' ? mimeType.toLowerCase().trim() : 'image/jpeg';
+      const normalizedMime = rawMime === 'image/jpg' ? 'image/jpeg' : rawMime;
+      const allowedImageMimes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+      if (!allowedImageMimes.has(normalizedMime)) {
+        return res.status(400).json({ error: "Unsupported image format. Please upload PNG, JPEG, or WEBP." });
+      }
+      const safeMimeType = normalizedMime;
 
       const ai = getAI();
 
@@ -1370,15 +1447,76 @@ Return schema:
     }
   });
 
+  const SUPER_ADMIN_EMAIL = 'josephsweetsinc@gmail.com';
+
+  const checkIsSuperAdmin = (req: any): boolean => {
+    const email = (req.userEmail || '')?.toLowerCase()?.trim();
+    return Boolean(req.emailVerified === true && email && email === SUPER_ADMIN_EMAIL.toLowerCase());
+  };
+
+  async function verifyReportAccess(reportId: string, uid: string, isSuperAdminUser: boolean, rawToken?: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+    if (!isValidDocId(reportId)) {
+      return { ok: false, status: 400, error: 'Invalid reportId format.' };
+    }
+
+    // Attempt 1: Admin SDK verification
+    try {
+      const db = getAdminDb();
+      const snap = await db.collection('reports').doc(reportId).get();
+      if (!snap.exists) {
+        return { ok: false, status: 404, error: 'Compliance report not found.' };
+      }
+      const ownerId = snap.data()?.clinicId;
+      if (ownerId !== uid && !isSuperAdminUser) {
+        return { ok: false, status: 403, error: 'Forbidden: You do not own this compliance report.' };
+      }
+      return { ok: true };
+    } catch (adminErr: any) {
+      // Attempt 2: Verify via Firestore REST API using caller's verified JWT (enforced by firestore.rules)
+      if (rawToken) {
+        try {
+          const { projectId, firestoreDatabaseId, apiKey } = firebaseAppletConfig;
+          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${firestoreDatabaseId}/documents/reports/${encodeURIComponent(reportId)}?key=${apiKey}`;
+          const restRes = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${rawToken}` },
+          });
+          if (restRes.status === 404) {
+            return { ok: false, status: 404, error: 'Compliance report not found.' };
+          }
+          if (restRes.status === 403) {
+            return { ok: false, status: 403, error: 'Forbidden: You do not own this compliance report.' };
+          }
+          if (restRes.ok) {
+            const docJson: any = await restRes.json();
+            const clinicId = docJson?.fields?.clinicId?.stringValue;
+            if (clinicId && clinicId !== uid && !isSuperAdminUser) {
+              return { ok: false, status: 403, error: 'Forbidden: You do not own this compliance report.' };
+            }
+            return { ok: true };
+          }
+        } catch {
+          // ignore network error and deny below
+        }
+      }
+      console.warn('[verifyReportAccess] Ownership verification failed:', adminErr?.message || adminErr);
+      return { ok: false, status: 403, error: 'Unable to verify report ownership.' };
+    }
+  }
+
   // API routes
-  app.post("/api/send-notification", notificationRateLimiter, async (req, res) => {
-    const targetEmail = String(req.body.email || req.body.recipientEmail || '').trim();
-    const { phone, reportId, customMessage } = req.body;
+  app.post("/api/send-notification", notificationRateLimiter, async (req: any, res) => {
+    const targetEmail = String(req.body?.email || req.body?.recipientEmail || '').replace(/[\r\n]/g, '').trim();
+    const { phone, reportId, customMessage } = req.body || {};
 
     console.log('Processing secure de-identified notification request. Email:', targetEmail ? 'provided' : 'none', 'Phone:', phone ? 'provided' : 'none');
 
     if (!reportId || (!targetEmail && !phone)) {
       return res.status(400).json({ error: "Missing required fields: reportId and at least one destination (email or phone) are required." });
+    }
+
+    const access = await verifyReportAccess(String(reportId), req.uid, checkIsSuperAdmin(req), req.rawToken);
+    if (!access.ok) {
+      return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
     }
 
     const appUrl = getAppUrl(req);
@@ -1399,10 +1537,9 @@ Return schema:
           const smsText = `A new compliance determination is ready. Log in to your secure ComplyZzz portal to view: ${reportUrl}`;
           const smsResult = await sendTwilioSms(cleanPhone, smsText);
           results.sms = { success: true, sid: smsResult.sid };
-          console.log(`De-identified SMS sent to ${cleanPhone}`);
+          console.log('De-identified SMS dispatched.');
         } catch (smsErr: any) {
           console.error('Twilio SMS error in send-notification:', smsErr.message);
-          // If only phone was requested, return error
           if (!targetEmail) {
             const status = (smsErr.message.includes('TWILIO_ACCOUNT_SID') || smsErr.message.includes('TWILIO_PHONE_NUMBER')) ? 401 : 500;
             return res.status(status).json({
@@ -1418,7 +1555,7 @@ Return schema:
     // 2. Handle Email Dispatch if email is provided
     if (targetEmail) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(targetEmail)) {
+      if (!emailRegex.test(targetEmail) || targetEmail.length > 254) {
         if (!phone) {
           return res.status(400).json({ error: "Invalid email address format." });
         }
@@ -1427,9 +1564,9 @@ Return schema:
           const resend = getResend();
           const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'reports@reports.complyzzz.com';
 
-          // Sanitize and limit custom message to 500 characters
+          // Sanitize, escape HTML, and limit custom message to 500 characters
           const safeCustomMessage = customMessage
-            ? String(customMessage).trim().slice(0, 500).replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            ? escapeHtml(String(customMessage).trim().slice(0, 500))
             : '';
 
           const customMessageHtml = safeCustomMessage.length > 0
@@ -1445,28 +1582,23 @@ Return schema:
           // No patient name, no diagnosis, no CPAP metrics
           const emailHtml = `
             <div style="font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
-              <!-- Header Banner -->
               <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
                 <span style="font-size: 10px; font-weight: 800; color: #2563eb; text-transform: uppercase; letter-spacing: 0.15em; display: block; margin-bottom: 4px;">ComplyZzz Secure Notification</span>
                 <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Compliance Determination Ready</h1>
               </div>
 
-              <!-- Required HIPAA De-identified Notice -->
               <p style="color: #1e293b; font-size: 16px; line-height: 1.6; margin-top: 0; margin-bottom: 24px;">
                 A new compliance determination is ready. Log in to your secure ComplyZzz portal to view.
               </p>
               
-              <!-- Optional Note -->
               ${customMessageHtml}
 
-              <!-- Secure Portal Access Button -->
               <div style="margin-top: 28px; text-align: center; margin-bottom: 28px;">
                 <a href="${reportUrl}" style="display: inline-block; padding: 14px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(37,99,235,0.2);">
                   Log In to Secure Portal
                 </a>
               </div>
               
-              <!-- HIPAA & Privacy Safeguard Note -->
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: left; color: #64748b; font-size: 11px; line-height: 1.5; margin-bottom: 20px;">
                 <strong style="color: #334155; font-size: 11px;">🔒 HIPAA & MEDICAL PRIVACY SAFEGUARD:</strong><br />
                 To protect patient health information (PHI) and comply with federal confidentiality standards, driver/patient names, clinical diagnoses, and CPAP metrics are never included in email or text notifications. Please log in to your secure ComplyZzz account to review the complete certified determination.
@@ -1475,6 +1607,7 @@ Return schema:
               <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
               <div style="text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.6;">
                 <p style="margin: 0; font-weight: bold;">ComplyZzz Sleep Analytics Portal</p>
+                <p style="margin: 4px 0 0 0;">Questions or concerns? Contact us at <a href="mailto:admin@complyzzz.com" style="color: #2563eb; text-decoration: none; font-weight: 600;">admin@complyzzz.com</a>.</p>
                 <p style="margin: 4px 0 0 0;">This is an automated administrative notification. Please do not reply directly to this email.</p>
               </div>
             </div>
@@ -1498,7 +1631,7 @@ Return schema:
             }
             results.email = { success: false, error: error.message || 'Email delivery failed' };
           } else {
-            console.log(`De-identified email notification sent successfully to ${targetEmail}`);
+            console.log('De-identified email notification dispatched.');
             results.email = { success: true, data };
           }
         } catch (err: any) {
@@ -1520,11 +1653,16 @@ Return schema:
   });
 
   // Dedicated SMS Notification Route
-  app.post("/api/send-sms", notificationRateLimiter, async (req, res) => {
-    const { phone, reportId } = req.body;
+  app.post("/api/send-sms", notificationRateLimiter, async (req: any, res) => {
+    const { phone, reportId } = req.body || {};
 
     if (!phone || !reportId) {
       return res.status(400).json({ error: "Missing required phone or reportId fields." });
+    }
+
+    const access = await verifyReportAccess(String(reportId), req.uid, checkIsSuperAdmin(req), req.rawToken);
+    if (!access.ok) {
+      return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
     }
 
     const cleanPhone = String(phone).replace(/[^\d+]/g, '').trim();
@@ -1541,7 +1679,7 @@ Return schema:
 
     try {
       const message = await sendTwilioSms(cleanPhone, smsText);
-      console.log(`De-identified SMS notification sent to ${cleanPhone}: SID ${message.sid}`);
+      console.log(`De-identified SMS notification sent: SID ${message.sid}`);
       res.json({ success: true, sid: message.sid });
     } catch (err: any) {
       console.error('Twilio SMS dispatch error:', err.message);
@@ -1554,17 +1692,25 @@ Return schema:
   });
 
   // Automatic user summary endpoint triggered upon report processing
-  app.post("/api/send-user-summary", notificationRateLimiter, async (req, res) => {
-    const { email, report } = req.body;
+  app.post("/api/send-user-summary", notificationRateLimiter, async (req: any, res) => {
+    const { email, report } = req.body || {};
 
-    console.log('Processing automatic user summary email for:', email);
-
-    if (!email || !report || !report.id) {
-      return res.status(400).json({ error: "Missing required fields: email and report.id" });
+    if (!report || !report.id) {
+      return res.status(400).json({ error: "Missing required field: report.id" });
     }
 
+    const access = await verifyReportAccess(String(report.id), req.uid, checkIsSuperAdmin(req), req.rawToken);
+    if (!access.ok) {
+      return res.status(access.status || 403).json({ error: access.error || 'Forbidden' });
+    }
+
+    // Only dispatch automated summaries to the authenticated operator's verified email (unless Super Admin)
+    const safeEmail = (checkIsSuperAdmin(req) && typeof email === 'string' && email.trim())
+      ? email.replace(/[\r\n]/g, '').trim()
+      : String(req.userEmail || '').replace(/[\r\n]/g, '').trim();
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(String(email).trim())) {
+    if (!safeEmail || !emailRegex.test(safeEmail) || safeEmail.length > 254) {
       return res.status(400).json({ error: "Invalid email address format." });
     }
 
@@ -1573,13 +1719,11 @@ Return schema:
     try {
       const resend = getResend();
       const reportUrl = `${appUrl}/dashboard/report/${encodeURIComponent(report.id)}`;
-      const safeEmail = (email as string).trim();
 
       // De-identified HIPAA-compliant template:
       // Never shows patient's name, diagnosis, or CPAP metrics
       const htmlContent = `
         <div style="font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
-          <!-- Header -->
           <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px;">
             <span style="font-size: 10px; font-weight: 800; color: #2563eb; letter-spacing: 0.15em; text-transform: uppercase; display: block; margin-bottom: 4px;">ComplyZzz Security Protocol</span>
             <h1 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.02em;">Compliance Determination Ready</h1>
@@ -1589,22 +1733,20 @@ Return schema:
             A new compliance determination is ready. Log in to your secure ComplyZzz portal to view.
           </p>
 
-          <!-- Secure Action Link -->
           <div style="text-align: center; margin-bottom: 28px; margin-top: 24px;">
             <a href="${reportUrl}" style="display: inline-block; padding: 13px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(37,99,235,0.2);">
               Log In to Secure Portal
             </a>
           </div>
 
-          <!-- Privacy & Security Notice -->
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 24px; font-size: 11px; color: #64748b; line-height: 1.5;">
             <strong>🔒 HIPAA & MEDICAL PRIVACY SAFEGUARD:</strong><br />
             To protect Protected Health Information (PHI), patient names, diagnosis descriptions, and CPAP compliance metrics are de-identified in all automated notification dispatches. Authorized personnel can view the complete clinical audit after signing into the encrypted portal.
           </div>
 
-          <!-- Footer -->
           <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 24px 0 16px 0;" />
           <p style="color: #94a3b8; font-size: 11px; text-align: center; line-height: 1.6; margin: 0;">
+            Questions or concerns? Contact us at <a href="mailto:admin@complyzzz.com" style="color: #2563eb; text-decoration: none; font-weight: 600;">admin@complyzzz.com</a>.<br />
             This is an automated administrative notification sent to verified portal users. Please do not reply directly to this email.
           </p>
         </div>
@@ -1628,7 +1770,7 @@ Return schema:
         });
       }
 
-      console.log(`De-identified automatic user summary email sent successfully to ${safeEmail}`);
+      console.log('De-identified automatic user summary email dispatched.');
       res.json({ success: true, data });
     } catch (err: any) {
       console.error('Automatic summary notification service error:', err.message);
@@ -1691,22 +1833,29 @@ Return schema:
     });
   });
 
+  // Server-tracked simulated checkout sessions (dev/non-production only when Stripe is not configured)
+  const simulatedCheckoutSessions = new Map<string, {
+    userId: string;
+    planType: 'per_report' | 'monthly_clinic';
+    quantity: number;
+    createdAt: number;
+  }>();
+
   app.post("/api/billing/create-checkout-session", async (req: any, res) => {
     try {
-      const { planType = 'per_report', quantity = 1, clinicName } = req.body;
-      // userId/userEmail come from the verified ID token, never from the
-      // request body or a synthesized guest id - otherwise a client could
-      // request a checkout session (and later have it verified) under
-      // someone else's account, or pay without any account to credit.
+      const { planType = 'per_report', quantity = 1, clinicName } = req.body || {};
       if (!req.uid || !req.userEmail) {
         return res.status(401).json({ error: "A verified, email-bearing account is required to start checkout." });
       }
+      if (planType !== 'per_report' && planType !== 'monthly_clinic') {
+        return res.status(400).json({ error: "Invalid planType specified." });
+      }
+
       const effectiveUserId = req.uid;
       const effectiveEmail = req.userEmail;
-
       const appUrl = getAppUrl(req);
       const stripe = getStripe();
-      const safeQty = Math.max(1, parseInt(String(quantity), 10) || 1);
+      const safeQty = Math.min(100, Math.max(1, parseInt(String(quantity), 10) || 1));
 
       // If Stripe secret key is configured, create live/test Stripe session
       if (stripe) {
@@ -1735,14 +1884,13 @@ Return schema:
             metadata: {
               userId: effectiveUserId,
               userEmail: effectiveEmail,
-              clinicName: clinicName || '',
+              clinicName: String(clinicName || '').slice(0, 200),
               planType: 'monthly_clinic',
             },
             success_url: `${appUrl}/dashboard/billing?session_id={CHECKOUT_SESSION_ID}&status=success&plan=monthly_clinic`,
             cancel_url: `${appUrl}/dashboard/billing?status=cancelled`,
           });
         } else {
-          // Pay-per-report: $9 per report (or batch credit purchase)
           session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'payment',
@@ -1763,7 +1911,7 @@ Return schema:
             metadata: {
               userId: effectiveUserId,
               userEmail: effectiveEmail,
-              clinicName: clinicName || '',
+              clinicName: String(clinicName || '').slice(0, 200),
               planType: 'per_report',
               credits: String(safeQty),
             },
@@ -1779,9 +1927,25 @@ Return schema:
         });
       }
 
-      // If Stripe is not yet configured with secret keys, provide instant preview simulation response
-      // This allows immediate testing and preview in the development container
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({
+          error: "Stripe payment processing is not configured on this server.",
+        });
+      }
+
+      // Development-only preview simulation (stored server-side so client cannot forge planType/quantity)
       const simulatedSessionId = `sim_session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      simulatedCheckoutSessions.set(simulatedSessionId, {
+        userId: effectiveUserId,
+        planType,
+        quantity: safeQty,
+        createdAt: Date.now(),
+      });
+      if (simulatedCheckoutSessions.size > 500) {
+        const oldestKey = simulatedCheckoutSessions.keys().next().value;
+        if (oldestKey) simulatedCheckoutSessions.delete(oldestKey);
+      }
+
       const redirectUrl = planType === 'monthly_clinic'
         ? `${appUrl}/dashboard/billing?session_id=${simulatedSessionId}&status=success&plan=monthly_clinic&simulated=true`
         : `${appUrl}/dashboard/billing?session_id=${simulatedSessionId}&status=success&plan=per_report&credits=${safeQty}&simulated=true`;
@@ -1792,7 +1956,7 @@ Return schema:
         simulated: true,
         planType,
         credits: safeQty,
-        message: "Stripe key is not configured in settings. Simulation mode active for testing.",
+        message: "Stripe key is not configured in settings. Development simulation mode active for testing.",
       });
     } catch (err: any) {
       console.error('Create checkout session error:', err);
@@ -1807,17 +1971,13 @@ Return schema:
     }
   });
 
-  // Verifies a completed Checkout Session directly with Stripe and grants the
-  // corresponding entitlement server-side via the Admin SDK. This is what
-  // actually unlocks paid access - the client only ever displays the result,
-  // it never writes reportCredits/subscriptionPlan/subscriptionStatus itself.
   app.post("/api/billing/verify-session", async (req: any, res) => {
     try {
-      const { sessionId } = req.body;
+      const { sessionId } = req.body || {};
       const userId = req.uid;
 
-      if (!sessionId) {
-        return res.status(400).json({ error: "Session ID is required." });
+      if (!sessionId || typeof sessionId !== 'string' || sessionId.length > 200) {
+        return res.status(400).json({ error: "Valid Session ID is required." });
       }
       if (!userId) {
         return res.status(401).json({ error: "Authentication required." });
@@ -1827,18 +1987,25 @@ Return schema:
       const db = getAdminDb();
 
       if (!stripe) {
-        const { planType, quantity = 1 } = req.body;
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(503).json({ error: "Stripe payment verification is unavailable." });
+        }
+
+        const simRecord = simulatedCheckoutSessions.get(sessionId);
+        if (!simRecord || simRecord.userId !== userId || Date.now() - simRecord.createdAt > 30 * 60 * 1000) {
+          return res.status(403).json({ error: "Invalid, expired, or unauthorized checkout session." });
+        }
+        simulatedCheckoutSessions.delete(sessionId);
+
         const session = {
           id: sessionId,
           metadata: {
             userId,
-            planType: planType === 'monthly_clinic' ? 'monthly_clinic' : 'per_report',
-            credits: String(Math.max(1, parseInt(quantity, 10) || 1)),
+            planType: simRecord.planType,
+            credits: String(simRecord.quantity),
           },
         } as unknown as Stripe.Checkout.Session;
-        // grantEntitlementForCheckoutSession throws on a genuine write
-        // failure - let that propagate to the outer catch below rather
-        // than reporting success for a grant that never happened.
+
         const result = await grantEntitlementForCheckoutSession(db, session);
         const userSnap = await db.collection('users').doc(userId).get();
         return res.json({ verified: true, simulated: true, granted: result.granted, profile: userSnap.data() ?? null });
@@ -1853,8 +2020,6 @@ Return schema:
       }
 
       if (session.payment_status === 'paid' || session.status === 'complete') {
-        // Same as above: a failed grant must surface as an error, not a
-        // fabricated success with numbers that were never persisted.
         const result = await grantEntitlementForCheckoutSession(db, session);
         const userSnap = await db.collection('users').doc(userId).get();
 
@@ -1925,11 +2090,7 @@ Return schema:
     }
   });
 
-  // Atomically consumes report credits for a batch of uploads about to be
-  // processed. This is the only path that may decrement reportCredits - it
-  // runs entirely server-side via the Admin SDK so it can't be bypassed by
-  // editing client requests or calling Firestore directly (security rules
-  // deny client writes to this field).
+  // Atomically consumes report credits for a batch of processed uploads.
   app.post("/api/reports/consume-credits", async (req: any, res) => {
     try {
       const userId = req.uid;
@@ -1937,7 +2098,7 @@ Return schema:
         return res.status(401).json({ error: "Authentication required." });
       }
 
-      const count = Math.max(1, parseInt(req.body?.count, 10) || 1);
+      const count = Math.min(10, Math.max(1, parseInt(req.body?.count, 10) || 1));
 
       try {
         const db = getAdminDb();
@@ -1975,11 +2136,11 @@ Return schema:
 
         return res.json(result);
       } catch (adminErr: any) {
-        console.warn('Firebase Admin SDK transaction unavailable, delegating to authenticated client:', adminErr.message);
+        console.warn('Firebase Admin SDK transaction unavailable, delegating strictly-decrementing write to authenticated client:', adminErr.message);
         return res.json({
           success: true,
           clientFallback: true,
-          message: 'Server Admin SDK not configured in container; client authenticated session will deduct credits.'
+          message: 'Server Admin SDK not configured in container; client authenticated session will decrement credits.'
         });
       }
     } catch (err: any) {
@@ -1988,7 +2149,7 @@ Return schema:
     }
   });
 
-  // Atomically refunds/restores report credits if a report failed or was unreadable
+  // Atomically refunds strictly 1 credit for an owned report once (server-side Admin SDK only)
   app.post("/api/reports/refund-credits", async (req: any, res) => {
     try {
       const userId = req.uid;
@@ -1996,45 +2157,70 @@ Return schema:
         return res.status(401).json({ error: "Authentication required." });
       }
 
-      const count = Math.max(1, parseInt(req.body?.count, 10) || 1);
+      const reportId = req.body?.reportId;
+      if (!isValidDocId(reportId)) {
+        return res.status(400).json({ error: "Valid reportId is required to request a Fair Billing refund." });
+      }
 
       try {
         const db = getAdminDb();
         const userRef = db.collection('users').doc(userId);
+        const reportRef = db.collection('reports').doc(reportId);
+        const refundedRef = db.collection('refundedReports').doc(reportId);
 
         const result = await db.runTransaction(async (tx) => {
-          const snap = await tx.get(userRef);
-          if (!snap.exists) {
-            return { success: false, unlimited: false, reportCredits: 0 };
+          const [userSnap, reportSnap, refundedSnap] = await Promise.all([
+            tx.get(userRef),
+            tx.get(reportRef),
+            tx.get(refundedRef),
+          ]);
+
+          if (!userSnap.exists) {
+            return { ok: false, status: 404, error: 'User profile not found.' };
           }
-          const data = snap.data() || {};
+          if (!reportSnap.exists || reportSnap.data()?.clinicId !== userId) {
+            return { ok: false, status: 403, error: 'Report not found or does not belong to your account.' };
+          }
+          if (refundedSnap.exists) {
+            return { ok: false, status: 409, error: 'A Fair Billing credit refund has already been issued for this report.' };
+          }
+
+          const data = userSnap.data() || {};
           const isUnlimited = data.subscriptionPlan === 'monthly_clinic' && data.subscriptionStatus === 'active';
           if (isUnlimited) {
-            return { success: true, unlimited: true, reportCredits: data.reportCredits ?? 0 };
+            return { ok: true, unlimited: true, reportCredits: data.reportCredits ?? 0 };
           }
 
-          const currentCredits = data.reportCredits ?? 0;
-          const updated = currentCredits + count;
+          const currentCredits = typeof data.reportCredits === 'number' ? data.reportCredits : 0;
+          const updated = currentCredits + 1;
+          tx.set(refundedRef, {
+            reportId,
+            userId,
+            refundedAt: new Date().toISOString(),
+          });
           tx.update(userRef, { reportCredits: updated });
-          return { success: true, unlimited: false, reportCredits: updated };
+          return { ok: true, unlimited: false, reportCredits: updated };
         });
 
-        return res.json(result);
+        if (!result.ok) {
+          return res.status(result.status || 400).json({ success: false, error: result.error });
+        }
+
+        return res.json({ success: true, unlimited: result.unlimited, reportCredits: result.reportCredits });
       } catch (adminErr: any) {
-        console.warn('Firebase Admin SDK transaction unavailable in refund:', adminErr.message);
-        return res.json({
-          success: true,
-          clientFallback: true,
-          message: 'Server Admin SDK not configured in container; client authenticated session will update credits.'
+        console.warn('Firebase Admin SDK unavailable in refund-credits:', adminErr.message);
+        return res.status(503).json({
+          success: false,
+          error: 'Credit refund requires server billing credentials (FIREBASE_SERVICE_ACCOUNT_KEY) in this environment. Please contact admin@complyzzz.com for immediate manual restoration.',
         });
       }
     } catch (err: any) {
       console.error('Refund credits error:', err);
-      res.status(500).json({ error: err.message || 'Failed to refund report credits.' });
+      res.status(500).json({ error: err.message || 'Failed to refund report credit.' });
     }
   });
 
-  // Restores 1 trial credit or refunds a wasted credit if the user experienced an app error
+  // One-time complimentary trial recovery if user has 0 credits and hasn't restored trial before
   app.post("/api/reports/restore-trial", async (req: any, res) => {
     try {
       const userId = req.uid;
@@ -2045,15 +2231,35 @@ Return schema:
       try {
         const db = getAdminDb();
         const userRef = db.collection('users').doc(userId);
-        await userRef.update({ reportCredits: 1 });
+        const result = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(userRef);
+          if (!snap.exists) {
+            return { ok: false, status: 404, error: 'User profile not found.' };
+          }
+          const data = snap.data() || {};
+          if (data.trialRestoredAt) {
+            return { ok: false, status: 409, error: 'Complimentary trial recovery has already been used for this account.' };
+          }
+          if ((data.reportCredits ?? 0) > 0) {
+            return { ok: false, status: 400, error: 'Your account already has active report credits.' };
+          }
+          tx.update(userRef, {
+            reportCredits: 1,
+            trialRestoredAt: new Date().toISOString(),
+          });
+          return { ok: true, reportCredits: 1 };
+        });
+
+        if (!result.ok) {
+          return res.status(result.status || 400).json({ success: false, error: result.error });
+        }
+
         return res.json({ success: true, reportCredits: 1, message: "Complimentary credit restored." });
       } catch (adminErr: any) {
-        console.warn('Firebase Admin SDK unavailable in restore-trial, delegating to client:', adminErr.message);
-        return res.json({
-          success: true,
-          clientFallback: true,
-          reportCredits: 1,
-          message: 'Client authenticated session will restore credit.'
+        console.warn('Firebase Admin SDK unavailable in restore-trial:', adminErr.message);
+        return res.status(503).json({
+          success: false,
+          error: 'Trial credit restoration requires server billing credentials (FIREBASE_SERVICE_ACCOUNT_KEY) in this environment.',
         });
       }
     } catch (err: any) {
@@ -2063,14 +2269,8 @@ Return schema:
   });
 
   // =========================================================================
-  // Super Admin Endpoints (Strictly restricted to josephsweetsinc@gmail.com)
+  // Super Admin Endpoints (Strictly restricted to verified josephsweetsinc@gmail.com)
   // =========================================================================
-  const SUPER_ADMIN_EMAIL = 'josephsweetsinc@gmail.com';
-
-  const checkIsSuperAdmin = (req: any): boolean => {
-    const email = (req.userEmail || '')?.toLowerCase()?.trim();
-    return Boolean(email && email === SUPER_ADMIN_EMAIL.toLowerCase());
-  };
 
   // GET /api/admin/users - Returns list of all users, credits, plan stats, and report counts
   app.get("/api/admin/users", requireAuth, async (req: any, res) => {
@@ -2197,7 +2397,13 @@ Return schema:
       }
 
       const targetUid = req.params.uid;
-      const { reportCredits, subscriptionPlan, subscriptionStatus } = req.body;
+      if (!isValidDocId(targetUid)) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user UID format." });
+      }
+
+      const { reportCredits, subscriptionPlan, subscriptionStatus } = req.body || {};
+      const allowedPlans = new Set(['free', 'per_report', 'monthly_clinic']);
+      const allowedStatuses = new Set(['active', 'inactive', 'trial', 'canceled', 'past_due']);
 
       if (typeof reportCredits !== 'number' && !subscriptionPlan && !subscriptionStatus) {
         return res.status(400).json({ error: "Bad Request", message: "No valid update fields provided." });
@@ -2205,12 +2411,21 @@ Return schema:
 
       const updateData: Record<string, any> = {};
       if (typeof reportCredits === 'number') {
-        updateData.reportCredits = Math.max(0, Math.floor(reportCredits));
+        if (!Number.isFinite(reportCredits)) {
+          return res.status(400).json({ error: "Bad Request", message: "Invalid reportCredits value." });
+        }
+        updateData.reportCredits = Math.min(100000, Math.max(0, Math.floor(reportCredits)));
       }
       if (subscriptionPlan) {
+        if (typeof subscriptionPlan !== 'string' || !allowedPlans.has(subscriptionPlan)) {
+          return res.status(400).json({ error: "Bad Request", message: "Invalid subscriptionPlan value." });
+        }
         updateData.subscriptionPlan = subscriptionPlan;
       }
       if (subscriptionStatus) {
+        if (typeof subscriptionStatus !== 'string' || !allowedStatuses.has(subscriptionStatus)) {
+          return res.status(400).json({ error: "Bad Request", message: "Invalid subscriptionStatus value." });
+        }
         updateData.subscriptionStatus = subscriptionStatus;
       }
 
@@ -2241,6 +2456,9 @@ Return schema:
       }
 
       const targetUid = req.params.uid;
+      if (!isValidDocId(targetUid)) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user UID format." });
+      }
 
       // Safety: Prevent deleting the Super Admin!
       if (targetUid === req.uid) {

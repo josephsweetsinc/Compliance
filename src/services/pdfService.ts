@@ -534,10 +534,16 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
     footerY + 31
   );
 
-  // Footnote
+  // Footnote & Support Contact
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(colorSecondary.r, colorSecondary.g, colorSecondary.b);
+  doc.text('Questions or concerns regarding this report? Contact ComplyZzz Support at admin@complyzzz.com', 105, 281, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(colorMuted.r, colorMuted.g, colorMuted.b);
-  doc.text('ComplyZzz Commercial Transport & Aviation CPAP Verification Portal • Powered by Secure Telemetry Audit', 105, 281, { align: 'center' });
+  doc.text('ComplyZzz Commercial Transport & Aviation CPAP Verification Portal • Powered by Secure Telemetry Audit', 105, 286, { align: 'center' });
 
   // 10. TRIGGER SAVE DOWNLOAD
   if (shouldSave) {

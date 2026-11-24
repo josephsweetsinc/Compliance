@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
+    // Global default-deny safety net
     match /{document=**} {
       allow read, write: if false;
     }
@@ -13,17 +13,29 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
+    }
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isVerifiedOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
     function isDocOwner() {
-      return isAuthenticated() && request.auth.uid == resource.data.clinicId;
+      return isAuthenticated() && resource != null && request.auth.uid == resource.data.clinicId;
+    }
+
+    function isVerifiedDocOwner() {
+      return isVerified() && resource != null && request.auth.uid == resource.data.clinicId;
     }
 
     function isSuperAdmin() {
-      return isAuthenticated() && 
-             'email' in request.auth.token && 
+      return isVerified() &&
+             'email' in request.auth.token &&
              request.auth.token.email.lower() == 'josephsweetsinc@gmail.com';
     }
 
@@ -41,69 +53,94 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'clinicName', 'createdAt']) &&
-             data.uid is string && data.uid == request.auth.uid &&
-             data.email is string && data.email.size() > 0 && data.email.size() <= 256 &&
+             data.keys().hasOnly([
+               'uid', 'email', 'displayName', 'clinicName', 'createdAt', 'autoEmailEnabled',
+               'subscriptionPlan', 'subscriptionStatus', 'subscriptionCurrentPeriodEnd',
+               'reportCredits', 'stripeCustomerId', 'stripeSubscriptionId',
+               'trialRestoredAt', 'lastInvoicePaidAt'
+             ]) &&
+             isValidId(data.uid) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 256 &&
              data.clinicName is string && data.clinicName.size() > 0 && data.clinicName.size() <= 200 &&
-             data.createdAt is string &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64 &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200)) &&
              (!('autoEmailEnabled' in data) || data.autoEmailEnabled is bool) &&
              (!('subscriptionPlan' in data) || (data.subscriptionPlan is string && data.subscriptionPlan in ['free', 'per_report', 'monthly_clinic'])) &&
-             (!('subscriptionStatus' in data) || (data.subscriptionStatus is string && data.subscriptionStatus in ['active', 'inactive', 'trial', 'canceled'])) &&
+             (!('subscriptionStatus' in data) || (data.subscriptionStatus is string && data.subscriptionStatus in ['active', 'inactive', 'trial', 'canceled', 'past_due'])) &&
              (!('subscriptionCurrentPeriodEnd' in data) || (data.subscriptionCurrentPeriodEnd is string && data.subscriptionCurrentPeriodEnd.size() <= 100)) &&
-             (!('reportCredits' in data) || (data.reportCredits is number && data.reportCredits >= 0)) &&
+             (!('reportCredits' in data) || (data.reportCredits is number && data.reportCredits >= 0 && data.reportCredits <= 100000)) &&
              (!('stripeCustomerId' in data) || (data.stripeCustomerId is string && data.stripeCustomerId.size() <= 256)) &&
-             (!('stripeSubscriptionId' in data) || (data.stripeSubscriptionId is string && data.stripeSubscriptionId.size() <= 256));
+             (!('stripeSubscriptionId' in data) || (data.stripeSubscriptionId is string && data.stripeSubscriptionId.size() <= 256)) &&
+             (!('trialRestoredAt' in data) || (data.trialRestoredAt is string && data.trialRestoredAt.size() <= 64)) &&
+             (!('lastInvoicePaidAt' in data) || (data.lastInvoicePaidAt is string && data.lastInvoicePaidAt.size() <= 64));
     }
 
-    // Billing/entitlement fields: subscription plans and Stripe IDs cannot be modified
-    // by the client. reportCredits can either remain unchanged or be decremented
-    // (consumed) when processing compliance reports. It can never be increased by the client.
-    function billingFieldsAllowed() {
-      let before = existing();
-      let after = incoming();
-      let planUnchanged = after.get('subscriptionPlan', 'free') == before.get('subscriptionPlan', 'free') &&
-                          after.get('subscriptionStatus', 'inactive') == before.get('subscriptionStatus', 'inactive') &&
-                          after.get('subscriptionCurrentPeriodEnd', null) == before.get('subscriptionCurrentPeriodEnd', null) &&
-                          after.get('stripeCustomerId', null) == before.get('stripeCustomerId', null) &&
-                          after.get('stripeSubscriptionId', null) == before.get('stripeSubscriptionId', null);
-      // reportCredits can be decremented on report processing or refunded/restored when an error occurs
-      let creditsValid = after.get('reportCredits', 0) is number &&
-                         after.get('reportCredits', 0) >= 0 &&
-                         after.get('reportCredits', 0) <= 500;
-      return planUnchanged && creditsValid;
-    }
-
-    // On initial profile creation, only the default trial state may be set -
-    // never an arbitrary paid plan or credit balance.
+    // On initial profile creation by a user, only default trial fields may be set.
     function billingFieldsAreDefaults(data) {
-      return data.get('subscriptionPlan', 'free') == 'free' &&
-             data.get('subscriptionStatus', 'trial') == 'trial' &&
+      return (!('subscriptionPlan' in data) || data.subscriptionPlan == 'free') &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus == 'trial') &&
              !('subscriptionCurrentPeriodEnd' in data) &&
-             data.get('reportCredits', 0) <= 1 &&
+             (!('reportCredits' in data) || (data.reportCredits is int && data.reportCredits >= 0 && data.reportCredits <= 1)) &&
              !('stripeCustomerId' in data) &&
-             !('stripeSubscriptionId' in data);
+             !('stripeSubscriptionId' in data) &&
+             !('trialRestoredAt' in data) &&
+             !('lastInvoicePaidAt' in data);
+    }
+
+    function isValidMetrics(m) {
+      return m is map &&
+             m.keys().hasOnly([
+               'patient_name', 'device_type', 'report_start_date', 'report_end_date',
+               'total_days', 'days_used_4_plus_hours', 'usage_days_percent',
+               'compliance_percentage', 'average_usage_hours', 'ahi',
+               'start_date', 'end_date', 'total_nights', 'nights_over_4_hours'
+             ]) &&
+             (!('patient_name' in m) || (m.patient_name is string && m.patient_name.size() <= 200)) &&
+             (!('device_type' in m) || (m.device_type is string && m.device_type.size() <= 150)) &&
+             (!('report_start_date' in m) || (m.report_start_date is string && m.report_start_date.size() <= 64)) &&
+             (!('report_end_date' in m) || (m.report_end_date is string && m.report_end_date.size() <= 64)) &&
+             (!('total_days' in m) || (m.total_days is number && m.total_days >= 0 && m.total_days <= 3650)) &&
+             (!('days_used_4_plus_hours' in m) || (m.days_used_4_plus_hours is number && m.days_used_4_plus_hours >= 0 && m.days_used_4_plus_hours <= 3650)) &&
+             (!('usage_days_percent' in m) || (m.usage_days_percent is number && m.usage_days_percent >= 0 && m.usage_days_percent <= 100)) &&
+             (!('compliance_percentage' in m) || (m.compliance_percentage is number && m.compliance_percentage >= 0 && m.compliance_percentage <= 100)) &&
+             (!('average_usage_hours' in m) || (m.average_usage_hours is number && m.average_usage_hours >= 0 && m.average_usage_hours <= 24)) &&
+             (!('ahi' in m) || (m.ahi is number && m.ahi >= 0 && m.ahi <= 200)) &&
+             (!('start_date' in m) || (m.start_date is string && m.start_date.size() <= 64)) &&
+             (!('end_date' in m) || (m.end_date is string && m.end_date.size() <= 64)) &&
+             (!('total_nights' in m) || (m.total_nights is number && m.total_nights >= 0 && m.total_nights <= 3650)) &&
+             (!('nights_over_4_hours' in m) || (m.nights_over_4_hours is number && m.nights_over_4_hours >= 0 && m.nights_over_4_hours <= 3650));
     }
 
     function isValidReport(data) {
       return data.keys().hasAll(['id', 'clinicId', 'patientName', 'metrics', 'status', 'createdAt']) &&
-             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
-             data.clinicId is string && data.clinicId == request.auth.uid &&
-             data.patientName is string && data.patientName.size() >= 0 && data.patientName.size() <= 200 &&
+             data.keys().hasOnly([
+               'id', 'clinicId', 'patientName', 'dob', 'licenseNumber', 'licenseState',
+               'metrics', 'status', 'createdAt', 'expiresAt', 'pdfUrl'
+             ]) &&
+             isValidId(data.id) &&
+             isValidId(data.clinicId) &&
+             data.patientName is string && data.patientName.size() <= 200 &&
              (!('dob' in data) || (data.dob is string && data.dob.size() <= 100)) &&
              (!('licenseNumber' in data) || (data.licenseNumber is string && data.licenseNumber.size() <= 100)) &&
              (!('licenseState' in data) || (data.licenseState is string && data.licenseState.size() <= 100)) &&
-              data.metrics is map &&
-             data.status in ['Compliant', 'Non-Compliant'] &&
-             data.createdAt is string;
+             (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 64)) &&
+             (!('pdfUrl' in data) || (data.pdfUrl is string && data.pdfUrl.size() <= 500)) &&
+             isValidMetrics(data.metrics) &&
+             data.status is string && data.status in ['Compliant', 'Non-Compliant'] &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64;
     }
 
     function isValidErrorLog(data) {
-      return data.keys().hasAll(['id', 'errorType', 'message', 'createdAt']) &&
-             data.id is string && isValidId(data.id) &&
+      return data.keys().hasAll(['id', 'errorType', 'message', 'userId', 'createdAt']) &&
+             data.keys().hasOnly([
+               'id', 'errorType', 'message', 'apiEndpoint', 'status', 'errorName',
+               'stack', 'userId', 'userEmail', 'url', 'userAgent', 'context', 'createdAt'
+             ]) &&
+             isValidId(data.id) &&
              data.errorType is string && data.errorType in ['API_FAILURE', 'RENDER_ERROR', 'NETWORK_ERROR', 'FIREBASE_ERROR', 'AUTH_ERROR', 'UNHANDLED_REJECTION'] &&
              data.message is string && data.message.size() > 0 && data.message.size() <= 2000 &&
-             data.createdAt is string &&
-             (!('userId' in data) || data.userId == null || (data.userId is string && data.userId.size() <= 128)) &&
+             data.userId is string && isValidId(data.userId) &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64 &&
              (!('userEmail' in data) || data.userEmail == null || (data.userEmail is string && data.userEmail.size() <= 256)) &&
              (!('apiEndpoint' in data) || data.apiEndpoint == null || (data.apiEndpoint is string && data.apiEndpoint.size() <= 500)) &&
              (!('status' in data) || data.status == null || data.status is number) &&
@@ -111,45 +148,82 @@ service cloud.firestore {
              (!('stack' in data) || data.stack == null || (data.stack is string && data.stack.size() <= 5000)) &&
              (!('url' in data) || data.url == null || (data.url is string && data.url.size() <= 500)) &&
              (!('userAgent' in data) || data.userAgent == null || (data.userAgent is string && data.userAgent.size() <= 500)) &&
-             (!('context' in data) || data.context == null || data.context is map);
+             (!('context' in data) || data.context == null || (data.context is map && data.context.keys().size() <= 25));
     }
 
     // ===============================================================
-    // Rules
+    // Collection Rules
     // ===============================================================
 
     match /users/{userId} {
-      allow get: if isOwner(userId) || isSuperAdmin();
+      allow get: if isValidId(userId) && (isOwner(userId) || isSuperAdmin());
       allow list: if isSuperAdmin();
-      allow create: if (isOwner(userId) && isValidUser(incoming()) && billingFieldsAreDefaults(incoming())) || isSuperAdmin();
-      allow update: if (isOwner(userId) && isValidUser(incoming()) &&
+      allow create: if isValidId(userId) && isValidUser(incoming()) && incoming().uid == userId && (
+                      (isVerifiedOwner(userId) &&
+                       'email' in request.auth.token &&
+                       incoming().email.lower() == request.auth.token.email.lower() &&
+                       billingFieldsAreDefaults(incoming())) ||
+                      isSuperAdmin()
+                    );
+      allow update: if isVerified() && isValidId(userId) && isValidUser(incoming()) &&
                        incoming().uid == existing().uid &&
                        incoming().email == existing().email &&
-                       incoming().createdAt == existing().createdAt &&
-                       billingFieldsAllowed()) || isSuperAdmin();
-      allow delete: if isSuperAdmin();
+                       incoming().createdAt == existing().createdAt && (
+                         isSuperAdmin() ||
+                         (isVerifiedOwner(userId) && (
+                           // Action: Update profile & notification settings
+                           incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'clinicName', 'autoEmailEnabled']) ||
+                           // Action: Client credit consumption decrement only (never increase)
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['reportCredits']) &&
+                            'reportCredits' in existing() &&
+                            existing().reportCredits is number &&
+                            incoming().reportCredits is number &&
+                            incoming().reportCredits >= 0 &&
+                            incoming().reportCredits < existing().reportCredits)
+                         ))
+                       );
+      allow delete: if isValidId(userId) && isSuperAdmin();
     }
 
     match /reports/{reportId} {
-      allow get: if (isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid)) || isSuperAdmin();
+      allow get: if isValidId(reportId) && ((isAuthenticated() && (resource == null || resource.data.clinicId == request.auth.uid)) || isSuperAdmin());
       allow list: if (isAuthenticated() && resource.data.clinicId == request.auth.uid) || isSuperAdmin();
-      allow create: if (isAuthenticated() && isValidId(reportId) && isValidReport(incoming()) && incoming().id == reportId) || isSuperAdmin();
-      allow update: if (isDocOwner() && isValidId(reportId) && isValidReport(incoming()) &&
+      allow create: if isVerified() && isValidId(reportId) && isValidReport(incoming()) && incoming().id == reportId && (
+                      incoming().clinicId == request.auth.uid || isSuperAdmin()
+                    );
+      allow update: if isVerified() && isValidId(reportId) && isValidReport(incoming()) &&
                        incoming().id == existing().id &&
                        incoming().clinicId == existing().clinicId &&
-                       incoming().createdAt == existing().createdAt) || isSuperAdmin();
-      allow delete: if isDocOwner() || isSuperAdmin();
+                       incoming().createdAt == existing().createdAt && (
+                         isSuperAdmin() ||
+                         (isVerifiedDocOwner() && incoming().diff(existing()).affectedKeys().hasOnly([
+                           'patientName', 'dob', 'licenseNumber', 'licenseState',
+                           'metrics', 'status', 'expiresAt', 'pdfUrl'
+                         ]))
+                       );
+      allow delete: if isVerified() && isValidId(reportId) && (isDocOwner() || isSuperAdmin());
     }
 
     match /error_logs/{logId} {
-      // Diagnostic error logs can be submitted by clients encountering errors.
-      // If signed in, verify userId matches caller or is null to prevent spoofing.
-      allow create: if isValidId(logId) && isValidErrorLog(incoming()) && incoming().id == logId &&
-                       (!isAuthenticated() || incoming().get('userId', null) == null || incoming().userId == request.auth.uid);
-      // Users can inspect their own session error logs
-      allow read: if isAuthenticated() && (resource == null || resource.data.get('userId', null) == request.auth.uid);
-      // Immutable audit records
+      allow get: if isValidId(logId) && ((isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid)) || isSuperAdmin());
+      allow list: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isSuperAdmin();
+      allow create: if isVerified() && isValidId(logId) && isValidErrorLog(incoming()) && incoming().id == logId && incoming().userId == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // Server-only ledgers (Firebase Admin SDK bypasses client rules)
+    match /stripeProcessedSessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    match /refundedReports/{reportId} {
+      allow read, write: if false;
+    }
+
+    // Network connectivity boot probe (document does not store data)
+    match /test/{docId} {
+      allow get: if isAuthenticated() && docId == 'connection';
+      allow list, write: if false;
     }
   }
 }

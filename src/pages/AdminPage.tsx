@@ -126,7 +126,7 @@ export default function AdminPage({ profile }: { profile: UserProfile }) {
   const [copiedUid, setCopiedUid] = useState<string | null>(null);
 
   const currentEmail = (auth.currentUser?.email || profile?.email || '').toLowerCase().trim();
-  const isCurrentSuperAdmin = currentEmail === SUPER_ADMIN_EMAIL.toLowerCase();
+  const isCurrentSuperAdmin = Boolean(auth.currentUser?.emailVerified) && currentEmail === SUPER_ADMIN_EMAIL.toLowerCase();
 
   const isFetchingRef = useRef(false);
 

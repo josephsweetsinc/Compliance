@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { UserProfile, ComplianceReport } from '../types';
 import { generateCompliancePdf } from '../services/pdfService';
@@ -196,14 +196,33 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
   const [refundMessage, setRefundMessage] = useState<string | null>(null);
 
   const handleRefundCredit = async () => {
-    if (!profile.uid) return;
+    if (!profile.uid || !report?.id) return;
     setRefundingCredit(true);
     setRefundMessage(null);
     try {
-      const currentCredits = profile.reportCredits ?? 0;
-      const newCredits = currentCredits + 1;
-      const userDocRef = doc(db, 'users', profile.uid);
-      await updateDoc(userDocRef, { reportCredits: newCredits });
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('Your authentication session has expired. Please sign in again.');
+      }
+
+      const res = await fetch('/api/reports/refund-credits', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ reportId: report.id }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Unable to process credit refund (status ${res.status}).`);
+      }
+
+      const newCredits = typeof data.reportCredits === 'number'
+        ? data.reportCredits
+        : (profile.reportCredits ?? 0);
+
       if (setProfile) {
         setProfile({ ...profile, reportCredits: newCredits });
       }
@@ -229,7 +248,7 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data() as ComplianceReport;
-          const isSuperAdminUser = (auth.currentUser?.email || profile.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
+          const isSuperAdminUser = Boolean(auth.currentUser?.emailVerified) && (auth.currentUser?.email || profile.email || '').toLowerCase().trim() === 'josephsweetsinc@gmail.com';
           if (data.clinicId !== profile.uid && !isSuperAdminUser) {
             setError('Unauthorized access to this report.');
           } else {
@@ -411,23 +430,10 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
   };
 
   const handleDelete = async () => {
-    if (!id || !window.confirm('Are you sure you want to delete this report? If you encountered an internal error with this report, 1 report credit will also be refunded back to your balance.')) return;
+    if (!id || !window.confirm('Are you sure you want to permanently delete this report? Note: If you encountered an internal error with this report, use "Refund 1 Credit" before deleting.')) return;
     const reportPath = `reports/${id}`;
     try {
       await deleteDoc(doc(db, 'reports', id));
-      // Auto-restore credit when deleting a report that had issues
-      if (profile.uid) {
-        try {
-          const newCredits = (profile.reportCredits ?? 0) + 1;
-          const userDocRef = doc(db, 'users', profile.uid);
-          await updateDoc(userDocRef, { reportCredits: newCredits });
-          if (setProfile) {
-            setProfile({ ...profile, reportCredits: newCredits });
-          }
-        } catch (creditErr) {
-          console.warn('Could not auto-restore credit upon deletion:', creditErr);
-        }
-      }
       navigate('/dashboard/history');
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, reportPath);
@@ -721,6 +727,17 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
 
           {/* Legal Compliance & Clinical Non-Intervention Disclaimer in Letter */}
           <LegalDisclaimer variant="letter" showAttestation={true} id="certified-letter-legal-disclaimer" />
+
+          <div className="mt-6 pt-4 border-t border-slate-200 text-center font-sans text-xs text-slate-600">
+            Questions or concerns regarding this compliance report? Contact ComplyZzz Support at{' '}
+            <a
+              href="mailto:admin@complyzzz.com?subject=Compliance%20Report%20Inquiry"
+              className="font-bold text-blue-600 hover:underline"
+            >
+              admin@complyzzz.com
+            </a>
+            .
+          </div>
         </div>
       </div>
     );
@@ -729,7 +746,7 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Super Admin Inspection Banner */}
-      {auth.currentUser?.email?.toLowerCase().trim() === 'josephsweetsinc@gmail.com' && report.clinicId !== profile.uid && (
+      {Boolean(auth.currentUser?.emailVerified) && auth.currentUser?.email?.toLowerCase().trim() === 'josephsweetsinc@gmail.com' && report.clinicId !== profile.uid && (
         <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm shadow-xs">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="text-indigo-600 dark:text-indigo-400 shrink-0" size={20} />
@@ -841,7 +858,7 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
         />
       )}
 
-      {/* Fair Billing Refund Success Notification */}
+      {/* Fair Billing Refund Notification */}
       {refundStatus === 'success' && refundMessage && (
         <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 text-sm flex items-center justify-between gap-3 animate-in fade-in duration-300">
           <div className="flex items-center gap-2">
@@ -852,6 +869,22 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
             type="button"
             onClick={() => setRefundStatus('idle')}
             className="text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {refundStatus === 'error' && refundMessage && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200 text-sm flex items-center justify-between gap-3 animate-in fade-in duration-300">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="text-rose-600 dark:text-rose-400 shrink-0" size={18} />
+            <p className="font-semibold">{refundMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRefundStatus('idle')}
+            className="text-xs font-bold text-rose-700 dark:text-rose-300 hover:underline cursor-pointer"
           >
             Dismiss
           </button>
@@ -1239,12 +1272,23 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
             </div>
           </div>
 
-          <div className="bg-blue-600 p-6 rounded-2xl text-white shadow-lg shadow-blue-200">
-            <h3 className="font-bold mb-2">Need Help?</h3>
-            <p className="text-sm text-blue-100 mb-4">If the metrics extracted seem incorrect, you can re-upload the original PDF for another analysis.</p>
-            <Link to="/upload" className="block text-center bg-white text-blue-600 font-bold py-2 rounded-xl text-sm transition-transform hover:scale-105 active:scale-95">
-              Re-upload Report
-            </Link>
+          <div className="bg-blue-600 p-6 rounded-2xl text-white shadow-lg shadow-blue-200 space-y-3">
+            <h3 className="font-bold">Need Help?</h3>
+            <p className="text-sm text-blue-100 leading-relaxed">
+              If the metrics extracted seem incorrect, you can re-upload the original file—or email us with any questions or concerns.
+            </p>
+            <div className="space-y-2 pt-1">
+              <Link to="/dashboard/upload" className="block text-center bg-white text-blue-600 font-bold py-2 rounded-xl text-sm transition-transform hover:scale-105 active:scale-95">
+                Re-upload Report
+              </Link>
+              <a
+                href={`mailto:admin@complyzzz.com?subject=${encodeURIComponent(`Question about Compliance Report ${report.id.substring(0, 8).toUpperCase()}`)}`}
+                className="flex items-center justify-center gap-1.5 text-center bg-blue-700/80 hover:bg-blue-800 text-white font-semibold py-2 px-3 rounded-xl text-xs transition-colors"
+              >
+                <Mail size={14} />
+                <span>admin@complyzzz.com</span>
+              </a>
+            </div>
           </div>
         </div>
       </div>

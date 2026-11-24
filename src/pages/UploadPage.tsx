@@ -76,7 +76,7 @@ export default function UploadPage({
   const navigate = useNavigate();
 
   const [restoringTrial, setRestoringTrial] = useState(false);
-  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+  const [restoreNotice, setRestoreNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const isUnlimited = profile.subscriptionPlan === 'monthly_clinic' && profile.subscriptionStatus === 'active';
   const availableCredits = profile.reportCredits ?? 0;
@@ -86,43 +86,43 @@ export default function UploadPage({
       setRestoringTrial(true);
       setRestoreNotice(null);
 
-      const targetCredits = Math.max(1, (profile.reportCredits || 0) + 1);
-
-      // Attempt server restore endpoint quietly
-      try {
-        const idToken = await auth.currentUser?.getIdToken();
-        if (idToken) {
-          await fetch('/api/reports/restore-trial', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`,
-            },
-          });
-        }
-      } catch (srvErr) {
-        console.warn('Server restore trial quiet notice:', srvErr);
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('Your session has expired. Please sign in again.');
       }
 
-      // Update client Firestore profile directly
-      if (profile.uid) {
-        try {
-          const userDocRef = doc(db, 'users', profile.uid);
-          await updateDoc(userDocRef, { reportCredits: targetCredits });
-        } catch (dbErr) {
-          console.warn('Direct Firestore credit restore notice:', dbErr);
-        }
+      const res = await fetch('/api/reports/restore-trial', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Unable to restore trial credit (status ${res.status}).`);
       }
+
+      const updatedCredits = typeof data.reportCredits === 'number'
+        ? data.reportCredits
+        : Math.max(1, profile.reportCredits || 0);
 
       if (setProfile) {
-        setProfile({ ...profile, reportCredits: targetCredits });
+        setProfile({ ...profile, reportCredits: updatedCredits });
       }
 
-      setRestoreNotice(`🎉 Fair Billing Guarantee: Report credit restored! Your balance is now ${targetCredits} credit${targetCredits === 1 ? '' : 's'}.`);
+      setRestoreNotice({
+        type: 'success',
+        text: `🎉 Fair Billing Guarantee: Report credit restored! Your balance is now ${updatedCredits} credit${updatedCredits === 1 ? '' : 's'}.`,
+      });
       setShowCreditModal(false);
     } catch (err: any) {
       console.warn('Could not restore credit:', err);
-      setRestoreNotice("Could not restore credit. Please refresh and try again.");
+      setRestoreNotice({
+        type: 'error',
+        text: err.message || 'Could not restore credit. Please refresh and try again.',
+      });
     } finally {
       setRestoringTrial(false);
     }
@@ -533,12 +533,25 @@ export default function UploadPage({
 
       {/* Restore Notice Banner */}
       {restoreNotice && (
-        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-xs font-semibold animate-in fade-in duration-200">
+        <div
+          className={`p-4 rounded-2xl flex items-center justify-between text-xs font-semibold animate-in fade-in duration-200 border ${
+            restoreNotice.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'
+              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60 text-rose-800 dark:text-rose-300'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>{restoreNotice}</span>
+            {restoreNotice.type === 'success' ? (
+              <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle size={16} className="text-rose-600 dark:text-rose-400 shrink-0" />
+            )}
+            <span>{restoreNotice.text}</span>
           </div>
-          <button onClick={() => setRestoreNotice(null)} className="text-emerald-600 hover:text-emerald-800 dark:hover:text-emerald-200 cursor-pointer p-1">
+          <button
+            onClick={() => setRestoreNotice(null)}
+            className="opacity-70 hover:opacity-100 cursor-pointer p-1"
+          >
             <X size={16} />
           </button>
         </div>
