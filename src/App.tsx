@@ -5,7 +5,7 @@ import { auth, logout, testConnection, resendVerificationEmail } from './lib/fir
 import { UserProfile } from './types';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, Menu, X, ChevronRight, ShieldCheck, MailCheck, RefreshCw, AlertCircle } from 'lucide-react';
+import { LayoutDashboard, FileUp, History, LogOut, Activity, HelpCircle, CreditCard, Coins, Sparkles, Menu, X, ChevronRight, ShieldCheck, MailCheck, RefreshCw, AlertCircle, Mail } from 'lucide-react';
 import { ThemeToggle } from './components/ThemeToggle';
 
 // Pages
@@ -399,6 +399,21 @@ function AuthenticatedApp({
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-auto min-w-0">
+        <div className="bg-slate-900 dark:bg-slate-950 text-white border-b border-slate-800 px-4 sm:px-6 lg:px-8 py-2.5">
+          <div className="max-w-5xl mx-auto flex items-center justify-center sm:justify-between text-xs sm:text-sm">
+            <span className="hidden sm:inline font-semibold text-slate-300">ComplyZzz Clinical Compliance Portal</span>
+            <a
+              href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Question%20or%20Support"
+              className="inline-flex items-center gap-2 font-extrabold text-white hover:text-blue-300 transition-colors"
+            >
+              <Mail size={15} className="text-blue-400 shrink-0 stroke-[2.5]" />
+              <span className="text-slate-100 font-bold">Questions or concerns?</span>
+              <span className="font-extrabold tracking-tight text-white underline decoration-2 decoration-blue-400 underline-offset-2">
+                admin@complyzzz.com
+              </span>
+            </a>
+          </div>
+        </div>
         <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 pb-28 md:pb-8">
           <ErrorBoundary
             id="dashboard-routes-error-boundary"

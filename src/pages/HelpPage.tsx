@@ -72,7 +72,26 @@ const faqs: FAQItem[] = [
   {
     category: 'troubleshooting',
     question: 'I didn\'t receive the email notification.',
-    answer: 'Check your spam folder first. Ensure the recipient email was entered correctly on the upload page. Notifications are sent from "onboarding@resend.dev" during the trial period.'
+    answer: (
+      <span>
+        Check your spam or promotions folder first, and make sure the recipient email was entered accurately. Notifications are dispatched via <strong>reports.complyzzz.com</strong>. If you still need assistance, email{' '}
+        <a href="mailto:admin@complyzzz.com" className="text-blue-700 dark:text-blue-400 font-extrabold underline decoration-2 underline-offset-2 hover:text-blue-800">
+          admin@complyzzz.com
+        </a>.
+      </span>
+    )
+  },
+  {
+    category: 'troubleshooting',
+    question: 'Who do I contact if I have questions or concerns about a report?',
+    answer: (
+      <span>
+        For any questions, report accuracy concerns, or billing support, please contact us directly at{' '}
+        <a href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Support%20Request" className="text-blue-700 dark:text-blue-400 font-extrabold underline decoration-2 underline-offset-2 hover:text-blue-800">
+          admin@complyzzz.com
+        </a>.
+      </span>
+    )
   }
 ];
 

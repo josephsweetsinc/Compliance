@@ -728,11 +728,11 @@ export default function ResultPage({ profile, setProfile }: { profile: UserProfi
           {/* Legal Compliance & Clinical Non-Intervention Disclaimer in Letter */}
           <LegalDisclaimer variant="letter" showAttestation={true} id="certified-letter-legal-disclaimer" />
 
-          <div className="mt-6 pt-4 border-t border-slate-200 text-center font-sans text-xs text-slate-600">
+          <div className="mt-6 pt-4 border-t border-slate-200 text-center font-sans text-sm font-semibold text-slate-800">
             Questions or concerns regarding this compliance report? Contact ComplyZzz Support at{' '}
             <a
               href="mailto:admin@complyzzz.com?subject=Compliance%20Report%20Inquiry"
-              className="font-bold text-blue-600 hover:underline"
+              className="font-extrabold text-blue-700 underline decoration-2 underline-offset-2 hover:text-blue-800"
             >
               admin@complyzzz.com
             </a>

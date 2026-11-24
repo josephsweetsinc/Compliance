@@ -143,18 +143,20 @@ export default function LandingPage() {
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#0b0f19]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 transition-colors duration-200">
         {/* Top Support Contact Bar */}
-        <div className="bg-slate-900 dark:bg-slate-950 text-slate-200 border-b border-slate-800/80">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-center sm:justify-between text-[11px] sm:text-xs">
-            <span className="hidden sm:inline text-slate-400">
+        <div className="bg-slate-900 dark:bg-slate-950 text-white border-b border-slate-800">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-10 flex items-center justify-center sm:justify-between text-xs sm:text-sm">
+            <span className="hidden sm:inline font-semibold text-slate-300">
               DOT &amp; FAA CPAP Compliance Verification Support
             </span>
             <a
               href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Question%20or%20Support"
-              className="inline-flex items-center gap-1.5 font-semibold text-white hover:text-blue-300 transition-colors"
+              className="inline-flex items-center gap-2 font-extrabold text-white hover:text-blue-300 transition-colors"
             >
-              <Mail size={13} className="text-blue-400 shrink-0" />
-              <span className="text-slate-300 font-normal">Questions or concerns?</span>
-              <span className="underline decoration-blue-400/70 underline-offset-2">admin@complyzzz.com</span>
+              <Mail size={15} className="text-blue-400 shrink-0 stroke-[2.5]" />
+              <span className="text-slate-100 font-bold">Questions or concerns?</span>
+              <span className="font-extrabold tracking-tight text-white underline decoration-2 decoration-blue-400 underline-offset-2">
+                admin@complyzzz.com
+              </span>
             </a>
           </div>
         </div>
@@ -167,7 +169,7 @@ export default function LandingPage() {
           </div>
 
           {/* Desktop Nav Links */}
-          <div className="hidden lg:flex items-center gap-7">
+          <div className="hidden lg:flex items-center gap-6">
             <a href="#simulator" className="text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               Live Demo
             </a>
@@ -182,6 +184,13 @@ export default function LandingPage() {
             </a>
             <a href="#faq" className="text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
               FAQ
+            </a>
+            <a
+              href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Question%20or%20Support"
+              className="inline-flex items-center gap-1.5 text-sm font-extrabold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/80 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
+            >
+              <Mail size={15} className="shrink-0 stroke-[2.5]" />
+              <span>admin@complyzzz.com</span>
             </a>
           </div>
 
@@ -255,6 +264,14 @@ export default function LandingPage() {
               className="block py-2 text-sm font-semibold text-slate-700 dark:text-slate-200"
             >
               Frequently Asked Questions
+            </a>
+            <a
+              href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Question%20or%20Support"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2 py-2.5 px-3 text-sm font-extrabold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/80 rounded-xl"
+            >
+              <Mail size={16} className="stroke-[2.5]" />
+              <span>Support: admin@complyzzz.com</span>
             </a>
             
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
@@ -1031,6 +1048,21 @@ export default function LandingPage() {
               {
                 q: "Can I upload a screenshot or smartphone photo instead of a PDF?",
                 a: "Yes! ComplyZzz fully accepts PDF documents as well as .png, .jpg, and .jpeg image files. You can take a live photo of your CPAP machine's screen with your smartphone camera, or upload screenshots from mobile apps like ResMed myAir, Philips DreamMapper, or Care Orchestrator. Our AI Vision engine reads the numbers directly from the photo to generate your official DOT letter."
+              },
+              {
+                q: "How can I contact ComplyZzz if I have questions or concerns?",
+                a: (
+                  <>
+                    If you have any questions or concerns about your CPAP compliance report, DOT/FAA requirements, or billing, please email us directly at{' '}
+                    <a
+                      href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Support%20Inquiry"
+                      className="font-extrabold text-blue-700 dark:text-blue-400 underline decoration-2 underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300"
+                    >
+                      admin@complyzzz.com
+                    </a>{' '}
+                    and we will respond promptly.
+                  </>
+                )
               },
             ].map((faq, idx) => {
               const isOpen = openFaqIndex === idx;

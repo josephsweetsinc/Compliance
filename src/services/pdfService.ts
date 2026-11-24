@@ -536,8 +536,8 @@ export function generateCompliancePdf(report: ComplianceReport, clinicName: stri
 
   // Footnote & Support Contact
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.setTextColor(colorSecondary.r, colorSecondary.g, colorSecondary.b);
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 23, 42);
   doc.text('Questions or concerns regarding this report? Contact ComplyZzz Support at admin@complyzzz.com', 105, 281, { align: 'center' });
 
   doc.setFont('helvetica', 'normal');
