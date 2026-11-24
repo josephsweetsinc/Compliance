@@ -142,6 +142,23 @@ export default function LandingPage() {
       
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#0b0f19]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 transition-colors duration-200">
+        {/* Top Support Contact Bar */}
+        <div className="bg-slate-900 dark:bg-slate-950 text-slate-200 border-b border-slate-800/80">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-center sm:justify-between text-[11px] sm:text-xs">
+            <span className="hidden sm:inline text-slate-400">
+              DOT &amp; FAA CPAP Compliance Verification Support
+            </span>
+            <a
+              href="mailto:admin@complyzzz.com?subject=ComplyZzz%20Question%20or%20Support"
+              className="inline-flex items-center gap-1.5 font-semibold text-white hover:text-blue-300 transition-colors"
+            >
+              <Mail size={13} className="text-blue-400 shrink-0" />
+              <span className="text-slate-300 font-normal">Questions or concerns?</span>
+              <span className="underline decoration-blue-400/70 underline-offset-2">admin@complyzzz.com</span>
+            </a>
+          </div>
+        </div>
+
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           
           {/* Brand Logo */}
@@ -261,7 +278,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-28 sm:pt-32 pb-16 sm:pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden relative">
+      <section className="pt-36 sm:pt-40 pb-16 sm:pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden relative">
         <div className="max-w-7xl mx-auto">
           
           {/* Regulatory Badges */}
